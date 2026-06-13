@@ -89,14 +89,32 @@ def canonicalize_scenario(scenario: dict) -> dict:
     return scenario
 
 
+def scenario_pickle_name(scenario: dict, scenario_id: Optional[str] = None) -> str:
+    extra_information = scenario.setdefault("extra_information", {})
+    if "id" not in extra_information and scenario_id is None:
+        raise KeyError("scenario['extra_information']['id'] is required for pickle naming.")
+
+    canonical_scenario_id = str(extra_information.get("id", scenario_id))
+    extra_information["id"] = canonical_scenario_id
+
+    if scenario_id is not None and str(scenario_id) != canonical_scenario_id:
+        raise ValueError(
+            f"Pickle name must match scenario id: got {scenario_id!r}, "
+            f"expected {canonical_scenario_id!r}."
+        )
+    if "/" in canonical_scenario_id or "\\" in canonical_scenario_id:
+        raise ValueError(f"Scenario id cannot contain path separators: {canonical_scenario_id!r}.")
+
+    return f"{canonical_scenario_id}.pkl"
+
+
 def save_scenario_pickle(scenario: dict, args: argparse.Namespace, scenario_id: Optional[str] = None) -> Path:
     scenario = canonicalize_scenario(scenario)
-    if scenario_id is None:
-        scenario_id = str(scenario["extra_information"]["id"])
+    pickle_name = scenario_pickle_name(scenario, scenario_id)
 
     save_dir = output_dir(args)
     os.makedirs(save_dir, exist_ok=True)
-    pickle_file_path = save_dir / f"{scenario_id}.pkl"
+    pickle_file_path = save_dir / pickle_name
     with open(pickle_file_path, "wb") as file:
         pickle.dump(scenario, file)
     return pickle_file_path

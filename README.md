@@ -60,6 +60,12 @@ python src/convertor.py \
 /path/to/converted-dataset/waymo-open/*.pkl
 ```
 
+所有输出文件统一命名为：
+
+```text
+[scenario_id].pkl
+```
+
 ## 命令行参数
 
 ```bash
