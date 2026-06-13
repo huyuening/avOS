@@ -124,6 +124,19 @@ nuPlan mini/trainval/test split:
 python src/convertor.py --dataset nuplan -- --split mini
 ```
 
+Argoverse 1 mini 小规模试跑:
+
+```bash
+python src/convertor.py \
+  --dataset argoverse-1 \
+  --raw_dataset_path "raw_dataset/Argoverse 1" \
+  --converted_dataset_path converted-dataset \
+  --num_workers 1 \
+  -- \
+  --split mini \
+  --max_files 1
+```
+
 nuPlan 小规模试跑:
 
 ```bash
@@ -286,6 +299,25 @@ tf.data.TFRecordDataset(...)
 
 在 macOS Apple Silicon 上，`requirements.txt` 会安装 `tensorflow-macos==2.10.0`。该版本要求 `protobuf < 3.20`，因此本项目固定使用 `protobuf==3.19.6`。
 
+## Argoverse 1 说明
+
+Argoverse 1 转换器直接读取 motion forecasting CSV 和 `map_files/*.xml`，不需要安装官方 `argoverse` SDK。
+
+目录通常应类似：
+
+```text
+raw_dataset/Argoverse 1/
+├── mini/
+│   └── data/
+│       ├── 10.csv
+│       └── ...
+└── map_files/
+    ├── pruned_argoverse_MIA_10316_vector_map.xml
+    └── pruned_argoverse_PIT_10314_vector_map.xml
+```
+
+也支持官方常见的 `train/data`、`val/data` 和 `test_obs/data` 结构。默认 `--split auto` 会按已有目录自动发现；输出文件名会带 split 前缀，例如 mini 输出为 `m_10.pkl`。
+
 ## nuPlan 说明
 
 nuPlan 转换器默认使用直接解析后端：通过 Python 标准库 `sqlite3` 读取 `.db` 轨迹文件，通过 `pyogrio/geopandas` 读取 `map.gpkg` 地图文件。它不依赖 `nuplan-devkit`、Hydra 或 Torch，因此比官方 devkit 路线更容易在 Windows、macOS 和 Linux 上运行。相关依赖已经合并在唯一的 `requirements.txt` 中。
@@ -385,6 +417,7 @@ python src/convertor.py \
 - Linux: 最推荐，重依赖数据集更容易配置。
 - macOS: 轻量数据集通常可用，TensorFlow 依赖可能需要按 CPU 架构处理。
 - Windows: Waymo Open 可尝试 TensorFlow 2.10.x 原生环境；nuPlan 默认直接解析后端不依赖 Linux-only 的 devkit 运行链路。
+- Argoverse 1 使用 CSV/XML 直接解析，不依赖官方 `argoverse` SDK。
 - nuPlan 地图解析依赖 `pyogrio/geopandas`，本质上依赖 GDAL 相关二进制包；优先使用 conda 或官方 wheel，遇到安装问题时可先用 `--skip_maps` 验证轨迹读取。
 - Shifts 使用内置 protobuf 解码 `.pb` 文件，不依赖官方完整 `ysdc_dataset_api` 运行环境。
 - Lyft Level 5 使用直接 zarr/protobuf 后端，不依赖完整 `l5kit`。如果原始数据缺少 `meta.json`，会跳过地图但保留轨迹转换。
