@@ -278,6 +278,8 @@ tf.data.TFRecordDataset(...)
 
 nuPlan 转换器默认使用直接解析后端：通过 Python 标准库 `sqlite3` 读取 `.db` 轨迹文件，通过 `pyogrio/geopandas` 读取 `map.gpkg` 地图文件。它不依赖 `nuplan-devkit`、Hydra 或 Torch，因此比官方 devkit 路线更容易在 Windows、macOS 和 Linux 上运行。相关依赖已经合并在唯一的 `requirements.txt` 中。
 
+如果环境中曾安装过旧版 Shapely，请运行 `pip install -U -r requirements.txt`。nuPlan 的 `pyogrio` 地图读取需要 Shapely 2.x。
+
 nuPlan 目录通常应类似：
 
 ```text
@@ -304,6 +306,8 @@ nuPlan 目录通常应类似：
 | `--max_files` | 最多转换多少个 `.db` 文件，适合试跑。 |
 | `--max_scenarios_per_file` | 每个 `.db` 最多转换多少个窗口，适合试跑。 |
 | `--skip_maps` | 跳过 `map.gpkg`，只验证轨迹转换。 |
+
+转换器会自动处理 nuPlan `.db` 中的短 location 名称，例如将 `las_vegas` 匹配到地图目录 `us-nv-las-vegas-strip`。
 
 ## 跨平台建议
 

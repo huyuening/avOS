@@ -58,6 +58,24 @@ STOP_POLYGON_MAPPING = {
     4: "YIELD",
 }
 
+NUPLAN_MAP_NAMES = {
+    "us-nv-las-vegas-strip",
+    "us-pa-pittsburgh-hazelwood",
+    "us-ma-boston",
+    "sg-one-north",
+}
+
+NUPLAN_LOCATION_ALIASES = {
+    "las_vegas": "us-nv-las-vegas-strip",
+    "las-vegas": "us-nv-las-vegas-strip",
+    "boston": "us-ma-boston",
+    "pittsburgh": "us-pa-pittsburgh-hazelwood",
+    "singapore": "sg-one-north",
+    "one_north": "sg-one-north",
+    "one-north": "sg-one-north",
+    "sg_one_north": "sg-one-north",
+}
+
 
 @dataclass(frozen=True)
 class LidarFrame:
@@ -305,17 +323,43 @@ def find_map_file(maps_root: Optional[Path], location: str) -> Optional[Path]:
     if not map_files:
         return None
 
-    location = str(location)
+    location_candidates = map_name_candidates(location)
     preferred = [
         path
         for path in map_files
-        if location in {part for part in path.parts} or location in path.stem
+        if any(candidate in {part for part in path.parts} or candidate in path.stem for candidate in location_candidates)
     ]
     if preferred:
         map_named = [path for path in preferred if path.name == "map.gpkg"]
         return map_named[0] if map_named else preferred[0]
 
     return map_files[0] if len(map_files) == 1 else None
+
+
+def map_name_candidates(location: str) -> List[str]:
+    raw = str(location or "").strip()
+    normalized = raw.lower().replace(" ", "_")
+    hyphenated = normalized.replace("_", "-")
+    candidates = [raw, hyphenated]
+
+    canonical = NUPLAN_LOCATION_ALIASES.get(normalized) or NUPLAN_LOCATION_ALIASES.get(hyphenated)
+    if hyphenated in NUPLAN_MAP_NAMES:
+        canonical = hyphenated
+    if canonical:
+        candidates.insert(0, canonical)
+
+    ret = []
+    for candidate in candidates:
+        if candidate and candidate not in ret:
+            ret.append(candidate)
+    return ret
+
+
+def canonical_map_name(location: str) -> str:
+    for candidate in map_name_candidates(location):
+        if candidate in NUPLAN_MAP_NAMES:
+            return candidate
+    return str(location)
 
 
 def get_location(connection: sqlite3.Connection, db_file: Path) -> str:
@@ -329,6 +373,7 @@ def get_location(connection: sqlite3.Connection, db_file: Path) -> str:
 
 
 def get_country_name(map_name: str) -> Optional[str]:
+    map_name = canonical_map_name(map_name)
     if map_name in {"us-nv-las-vegas-strip", "us-pa-pittsburgh-hazelwood", "us-ma-boston"}:
         return "AMERICA"
     if map_name == "sg-one-north":
@@ -337,6 +382,7 @@ def get_country_name(map_name: str) -> Optional[str]:
 
 
 def get_city_name(map_name: str) -> Optional[str]:
+    map_name = canonical_map_name(map_name)
     city_by_map = {
         "us-nv-las-vegas-strip": "LAS_VEGAS",
         "us-pa-pittsburgh-hazelwood": "PITTSBURGH",
@@ -579,13 +625,38 @@ def import_map_dependencies():
     return pyogrio
 
 
-def read_map_layer(pyogrio, file_path: Path, layer_name: str, projection_system=None, fid_as_index=False):
+def read_map_layer(
+    pyogrio,
+    file_path: Path,
+    layer_name: str,
+    projection_system=None,
+    fid_as_index=False,
+    required=False,
+):
     try:
         frame = pyogrio.read_dataframe(file_path, layer=layer_name, fid_as_index=fid_as_index)
-    except Exception:
+    except AttributeError as exc:
+        if "from_wkb" in str(exc):
+            raise RuntimeError(
+                "nuPlan map parsing requires Shapely 2.x with pyogrio. "
+                "Run `pip install -U -r requirements.txt` in the active environment."
+            ) from exc
+        if required:
+            raise RuntimeError(f"Failed to read required nuPlan map layer '{layer_name}' from {file_path}.") from exc
+        return None
+    except Exception as exc:
+        if required:
+            raise RuntimeError(f"Failed to read required nuPlan map layer '{layer_name}' from {file_path}.") from exc
         return None
     if frame is not None and projection_system and not frame.empty and hasattr(frame, "to_crs"):
-        frame = frame.to_crs(projection_system)
+        try:
+            frame = frame.to_crs(projection_system)
+        except Exception as exc:
+            if required:
+                raise RuntimeError(
+                    f"Failed to project required nuPlan map layer '{layer_name}' to {projection_system}."
+                ) from exc
+            return None
     return frame
 
 
@@ -616,15 +687,16 @@ def load_map_context(map_file: Path, location: str) -> MapContext:
     pyogrio = import_map_dependencies()
     projection_system = load_projection_system(pyogrio, map_file)
 
-    boundaries = read_map_layer(pyogrio, map_file, "boundaries", projection_system, True)
-    baseline_paths = read_map_layer(pyogrio, map_file, "baseline_paths", projection_system, True)
-    lanes = read_map_layer(pyogrio, map_file, "lanes_polygons", projection_system, True)
-    lane_connectors = read_map_layer(pyogrio, map_file, "lane_connectors", projection_system, True)
+    boundaries = read_map_layer(pyogrio, map_file, "boundaries", projection_system, True, True)
+    baseline_paths = read_map_layer(pyogrio, map_file, "baseline_paths", projection_system, True, True)
+    lanes = read_map_layer(pyogrio, map_file, "lanes_polygons", projection_system, True, True)
+    lane_connectors = read_map_layer(pyogrio, map_file, "lane_connectors", projection_system, True, True)
     connector_polygons = read_map_layer(
         pyogrio,
         map_file,
         "gen_lane_connectors_scaled_width_polygons",
         projection_system,
+        True,
         True,
     )
 
