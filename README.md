@@ -315,6 +315,8 @@ nuPlan 目录通常应类似：
 
 转换器会自动处理 nuPlan `.db` 中的短 location 名称，例如将 `las_vegas` 匹配到地图目录 `us-nv-las-vegas-strip`。
 
+nuPlan 输出文件的 `[scenario_id]` 使用场景起始 `lidar_pc` token，与 nuPlan devkit 中 `scenario.token` 的含义保持一致。
+
 ## 跨平台建议
 
 - Linux: 最推荐，重依赖数据集更容易配置。

@@ -1091,7 +1091,7 @@ def process_window(
     map_context: Optional[MapContext],
     args,
 ) -> None:
-    scenario_id = f"{db_file.stem}_{frames[0].timestamp_us}_{frames[-1].timestamp_us}"
+    scenario_id = frames[0].token_id
     object_tracks = extract_object_tracks(connection, frames, track_infos, args)
     scenario_center = scenario_center_from_tracks(object_tracks)
     map_features = {} if args.skip_maps else extract_map_features(map_context, scenario_center, args.map_radius)
