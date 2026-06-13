@@ -357,6 +357,7 @@ python src/visualizer.py [options]
 | `--history_frames` | 显示多少帧历史轨迹，设为 `0` 最快。 |
 | `--dpi` | 渲染清晰度，默认 `120`。更高清会更慢。 |
 | `--no_labels` | 不绘制车辆 id 和速度文字，速度更快。 |
+| `--ego_view` | 以主车为中心旋转视角，让红色主车车头始终朝上。 |
 
 当前可视化流程已经去掉旧版的逐帧 PNG 落盘和二次读图拼视频，改为直接从 Matplotlib canvas 写入 OpenCV `VideoWriter`。静态地图每个场景只绘制一次，轨迹状态也会预先整理，通常明显快于旧脚本。
 
@@ -372,6 +373,17 @@ python src/visualizer.py \
   --history_frames 2 \
   --dpi 80 \
   --no_labels
+```
+
+主车车头朝上视角：
+
+```bash
+python src/visualizer.py \
+  --converted_dataset_path converted-dataset \
+  --dataset lyft-level-5 \
+  --scenario_ids s_15 \
+  --result_path video-dataset \
+  --ego_view
 ```
 
 ## 内部模块不能直接运行

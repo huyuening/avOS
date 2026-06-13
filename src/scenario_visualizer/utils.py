@@ -1057,12 +1057,37 @@ def _camera_centers(tracks, scenario_length):
     return centers
 
 
-def _add_vehicle_patch(ax, x, y, length, width, heading, color, alpha, linewidth, zorder):
+def _camera_headings(tracks, scenario_length):
+    headings = np.zeros(scenario_length, dtype=np.float64)
+    sdc_track = next((track for track in tracks if track['is_sdc']), None)
+    if sdc_track is None:
+        return headings
+
+    last_heading = 0.0
+    for frame in range(scenario_length):
+        if frame < len(sdc_track['valid']) and sdc_track['valid'][frame]:
+            last_heading = float(sdc_track['heading'][frame])
+        headings[frame] = last_heading
+    return headings
+
+
+def _view_transform(ax, center, heading, ego_view):
+    if not ego_view:
+        return ax.transData
+    return Affine2D().rotate_around(center[0], center[1], np.pi / 2 - heading) + ax.transData
+
+
+def _set_static_artist_transform(artists, data_transform):
+    for artist in artists:
+        artist.set_transform(data_transform)
+
+
+def _add_vehicle_patch(ax, x, y, length, width, heading, color, alpha, linewidth, zorder, data_transform):
     rect = Rectangle(
         xy=(x - 0.5 * length, y - 0.5 * width),
         width=length,
         height=width,
-        transform=Affine2D().rotate_deg_around(x, y, heading * 180 / np.pi) + ax.transData,
+        transform=Affine2D().rotate_deg_around(x, y, heading * 180 / np.pi) + data_transform,
         alpha=alpha,
         linewidth=linewidth,
         facecolor=color,
@@ -1073,7 +1098,7 @@ def _add_vehicle_patch(ax, x, y, length, width, heading, color, alpha, linewidth
     return rect
 
 
-def _add_heading_patch(ax, x, y, length, heading):
+def _add_heading_patch(ax, x, y, length, heading, data_transform):
     point_a = (x + length * np.cos(heading) / 2, y + length * np.sin(heading) / 2)
     point_b = (
         x + length * np.cos(heading) / 3 - length * np.sin(heading) / (6 * np.sqrt(3)),
@@ -1089,13 +1114,14 @@ def _add_heading_patch(ax, x, y, length, heading):
         alpha=0.8,
         facecolor='none',
         edgecolor="black",
+        transform=data_transform,
         zorder=5,
     )
     ax.add_patch(patch)
     return patch
 
 
-def _draw_dynamic_tracks(ax, tracks, frame, history_frames, show_labels):
+def _draw_dynamic_tracks(ax, tracks, frame, history_frames, show_labels, data_transform):
     artists = []
     first_history_frame = max(0, frame - history_frames)
     for history_frame in range(first_history_frame, frame):
@@ -1108,7 +1134,7 @@ def _draw_dynamic_tracks(ax, tracks, frame, history_frames, show_labels):
             if length <= 0 or width <= 0:
                 continue
             x, y = track['center'][history_frame, :2]
-            artists.append(_add_vehicle_patch(ax, x, y, length, width, track['heading'][history_frame], track['color'], alpha, 0, 3))
+            artists.append(_add_vehicle_patch(ax, x, y, length, width, track['heading'][history_frame], track['color'], alpha, 0, 3, data_transform))
 
     for track in tracks:
         if frame >= len(track['valid']) or not track['valid'][frame]:
@@ -1117,19 +1143,19 @@ def _draw_dynamic_tracks(ax, tracks, frame, history_frames, show_labels):
         x, y = track['center'][frame, :2]
         length, width = track['size'][frame, 0], track['size'][frame, 1]
         if length > 0 and width > 0:
-            artists.append(_add_vehicle_patch(ax, x, y, length, width, track['heading'][frame], track['color'], 0.8, 0.5, 4))
+            artists.append(_add_vehicle_patch(ax, x, y, length, width, track['heading'][frame], track['color'], 0.8, 0.5, 4, data_transform))
             if track['type'] == 'VEHICLE':
-                artists.append(_add_heading_patch(ax, x, y, length, track['heading'][frame]))
+                artists.append(_add_heading_patch(ax, x, y, length, track['heading'][frame], data_transform))
         else:
-            artists.append(ax.scatter(x, y, s=5, color=track['color'], zorder=4))
+            artists.append(ax.scatter(x, y, s=5, color=track['color'], transform=data_transform, zorder=4))
 
         if show_labels:
-            artists.append(ax.text(x=x, y=y + 1.4, s=track['label'], fontsize=4, ha="center", va="center", color="w", zorder=5, clip_on=True))
-            artists.append(ax.text(x=x, y=y, s=str(round(track['speed'][frame], 1)), fontsize=4, ha="center", va="center", color="w", zorder=5, clip_on=True))
+            artists.append(ax.text(x=x, y=y + 1.4, s=track['label'], fontsize=4, ha="center", va="center", color="w", transform=data_transform, zorder=5, clip_on=True))
+            artists.append(ax.text(x=x, y=y, s=str(round(track['speed'][frame], 1)), fontsize=4, ha="center", va="center", color="w", transform=data_transform, zorder=5, clip_on=True))
     return artists
 
 
-def _draw_dynamic_map_states(ax, data, frame):
+def _draw_dynamic_map_states(ax, data, frame, data_transform):
     artists = []
     color_map = {
         'GREEN': 'green',
@@ -1153,7 +1179,7 @@ def _draw_dynamic_map_states(ax, data, frame):
         stop_point = dynamic_map_state.get('stop_point')
         if stop_point is None:
             continue
-        artists.append(ax.scatter(stop_point[0], stop_point[1], s=10, edgecolor="black", linewidth=0.5, c=color, zorder=3))
+        artists.append(ax.scatter(stop_point[0], stop_point[1], s=10, edgecolor="black", linewidth=0.5, c=color, transform=data_transform, zorder=3))
     return artists
 
 
@@ -1177,6 +1203,7 @@ def scenario_visualization(
         show_labels=True,
         codec='mp4v',
         fps=None,
+        ego_view=False,
 ):
     fig, ax = plt.subplots(figsize=(6, 6))
     fig.set_dpi(dpi)
@@ -1192,10 +1219,12 @@ def scenario_visualization(
     )
 
     scenario_visualization.plot_map_features_without_save(data, ax, plot=True, extra_plot=True)
+    static_artists = list(ax.lines) + list(ax.patches) + list(ax.collections) + list(ax.texts)
 
     tracks = _precompute_tracks(data)
     scenario_length = int(data['extra_information']['scene_length'])
     camera_centers = _camera_centers(tracks, scenario_length) if tracks else np.zeros((scenario_length, 2))
+    camera_headings = _camera_headings(tracks, scenario_length) if tracks else np.zeros(scenario_length)
     frame_stride = max(1, int(frame_stride))
     frames = list(range(0, scenario_length, frame_stride))
     if max_frames is not None:
@@ -1211,13 +1240,16 @@ def scenario_visualization(
 
     try:
         for frame in tqdm(frames):
-            sdc_center_x, sdc_center_y = camera_centers[frame]
+            camera_center = camera_centers[frame]
+            sdc_center_x, sdc_center_y = camera_center
+            data_transform = _view_transform(ax, camera_center, camera_headings[frame], ego_view)
+            _set_static_artist_transform(static_artists, data_transform)
             ax.set_xlim(sdc_center_x - 80, sdc_center_x + 80)
             ax.set_ylim(sdc_center_y - 80, sdc_center_y + 80)
 
             dynamic_artists = []
-            dynamic_artists.extend(_draw_dynamic_tracks(ax, tracks, frame, history_frames, show_labels))
-            dynamic_artists.extend(_draw_dynamic_map_states(ax, data, frame))
+            dynamic_artists.extend(_draw_dynamic_tracks(ax, tracks, frame, history_frames, show_labels, data_transform))
+            dynamic_artists.extend(_draw_dynamic_map_states(ax, data, frame, data_transform))
             if len(traffic_events):
                 scenario_visualization.plot_traffic_event_pair(data, traffic_events, frame, plot=True)
 

@@ -49,6 +49,7 @@ def build_arg_parser():
     parser.add_argument("--fps", default=None, type=float, help="Output FPS. Defaults to sampling_rate / frame_stride.")
     parser.add_argument("--codec", default="mp4v", help="OpenCV fourcc codec, for example mp4v.")
     parser.add_argument("--no_labels", action="store_true", help="Skip object id and speed labels.")
+    parser.add_argument("--ego_view", action="store_true", help="Rotate the scene so the SDC points upward.")
     return parser
 
 
@@ -94,6 +95,7 @@ def render_scenario(params):
         show_labels=not args.no_labels,
         codec=args.codec,
         fps=args.fps,
+        ego_view=args.ego_view,
     )
 
 
