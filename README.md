@@ -150,6 +150,19 @@ python src/convertor.py \
   --max_files 1
 ```
 
+V2X-Seq mini 小规模试跑:
+
+```bash
+python src/convertor.py \
+  --dataset v2x-seq \
+  --raw_dataset_path raw_dataset/V2X-Seq \
+  --converted_dataset_path converted-dataset \
+  --num_workers 1 \
+  -- \
+  --split mini \
+  --max_files 1
+```
+
 nuPlan 小规模试跑:
 
 ```bash
@@ -441,6 +454,39 @@ python src/convertor.py \
   --max_scenarios 1
 ```
 
+## V2X-Seq 说明
+
+V2X-Seq 转换器直接读取轨迹 CSV、交通灯 CSV 和 `maps/yizhuang_hdmap*.json`，不需要额外安装官方 SDK。当前已兼容本项目中的 cooperative mini 结构，也保留对常见 `train/val/test` split 的自动发现。
+
+目录通常应类似：
+
+```text
+raw_dataset/V2X-Seq/
+├── cooperative-vehicle-infrastructure/
+│   ├── cooperative-trajectories/
+│   │   └── mini/
+│   │       ├── 4.csv
+│   │       └── ...
+│   └── traffic-light/
+│       ├── 4.csv
+│       └── ...
+└── maps/
+    ├── yizhuang_hdmap1.json
+    └── ...
+```
+
+常用 V2X-Seq 专属参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--split` | 选择 `auto`、`mini`、`train`、`val` 或 `test`。 |
+| `--source` | 选择 `auto`、`cooperative`、`single_vehicle` 或 `single_infrastructure`。 |
+| `--max_files` | 最多转换多少个轨迹 CSV，适合试跑。 |
+| `--skip_maps` | 跳过 HD map JSON，只验证轨迹转换。 |
+| `--skip_dynamic_map_states` | 跳过交通灯 CSV。 |
+
+输出文件名会包含来源和 split 前缀，例如 cooperative mini 的 `12.csv` 会输出为 `c_m_12.pkl`，并且文件名与 `extra_information.id` 保持一致。
+
 ## 跨平台建议
 
 - Linux: 最推荐，重依赖数据集更容易配置。
@@ -451,6 +497,7 @@ python src/convertor.py \
 - nuPlan 地图解析依赖 `pyogrio/geopandas`，本质上依赖 GDAL 相关二进制包；优先使用 conda 或官方 wheel，遇到安装问题时可先用 `--skip_maps` 验证轨迹读取。
 - Shifts 使用内置 protobuf 解码 `.pb` 文件，不依赖官方完整 `ysdc_dataset_api` 运行环境。
 - Lyft Level 5 使用直接 zarr/protobuf 后端，不依赖完整 `l5kit`。如果原始数据缺少 `meta.json`，会跳过地图但保留轨迹转换。
+- V2X-Seq 使用 CSV/JSON 直接解析，不依赖额外官方 SDK，主要依赖已有的 `pandas/numpy`。
 - 调试时先使用 `--num_workers 1`，确认单进程可运行后再提高并行数。
 
 ## 常见问题

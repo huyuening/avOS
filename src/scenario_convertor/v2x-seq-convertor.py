@@ -1,5 +1,3 @@
-# V2X-Seq Trajectory Forecasting Dataset -> V2X-Seq Scenario Dataset (VSSD)
-
 try:
     from scenario_convertor.internal import ensure_internal_converter_run, run_converter_main
 except ModuleNotFoundError:
@@ -8,305 +6,371 @@ except ModuleNotFoundError:
 ensure_internal_converter_run()
 
 import argparse
+import ast
 import json
-import numpy as np
-import os
-import pandas as pd
 import re
+from pathlib import Path
+from typing import Optional
 
+import numpy as np
+import pandas as pd
 from tqdm import tqdm
-from utils import add_common_converter_args, object_state_template, run_tasks, save_scenario_pickle, traffic_light_state_template
 
-
-def build_arg_parser():
-    parser = argparse.ArgumentParser(description='V2X-Seq Motion Prediction Dataset (V2X-Seq) Converter')
-    return add_common_converter_args(
-        parser,
-        default_raw_dataset_path='/dataset/x-scene/autonomous-vehicle-dataset/autonomous-vehicle-motion-dataset/v2x-seq-motion-dataset',
-        default_subset_name='v2x-seq',
-        default_raw_dataset_version='v1.0',
-        raw_dataset_help='The file directory for V2X-Seq',
+try:
+    from scenario_convertor.utils import (
+        add_common_converter_args,
+        global_to_local_velocity,
+        object_state_template,
+        run_tasks,
+        save_scenario_pickle,
+        traffic_light_state_template,
+    )
+except ModuleNotFoundError:
+    from utils import (
+        add_common_converter_args,
+        global_to_local_velocity,
+        object_state_template,
+        run_tasks,
+        save_scenario_pickle,
+        traffic_light_state_template,
     )
 
 
-def list_scenario_ids(raw_dataset_path):
-    return ['t_' + i[0:-4] for i in os.listdir(raw_dataset_path+'/cooperative-vehicle-infrastructure/vehicle-trajectories/train')] + \
-           ['v_' + i[0:-4] for i in os.listdir(raw_dataset_path+'/cooperative-vehicle-infrastructure/vehicle-trajectories/val')] + \
-           ['_t_' + i[0:-4] for i in os.listdir(raw_dataset_path+'/single-vehicle/trajectories/train')] + \
-           ['_v_' + i[0:-4] for i in os.listdir(raw_dataset_path+'/single-vehicle/trajectories/val')] + \
-           ['__t_' + i[0:-4] for i in os.listdir(raw_dataset_path+'/single-infrastructure/trajectories/train')] + \
-           ['__v_' + i[0:-4] for i in os.listdir(raw_dataset_path+'/single-infrastructure/trajectories/val')]
-
-
 MAX_DISTANCE = 150
+SCENARIO_SOURCES = (
+    ("cooperative", ("cooperative-vehicle-infrastructure/cooperative-trajectories", "cooperative-vehicle-infrastructure/vehicle-trajectories")),
+    ("single_vehicle", ("single-vehicle/trajectories",)),
+    ("single_infrastructure", ("single-infrastructure/trajectories",)),
+)
+SOURCE_PREFIX = {"cooperative": "c", "single_vehicle": "sv", "single_infrastructure": "si"}
+SPLIT_PREFIX = {"mini": "m", "train": "t", "val": "v", "test": "e"}
+
+
+def build_arg_parser():
+    parser = argparse.ArgumentParser(description="V2X-Seq Motion Prediction Dataset Converter")
+    add_common_converter_args(
+        parser,
+        default_raw_dataset_path="/dataset/x-scene/autonomous-vehicle-dataset/autonomous-vehicle-motion-dataset/v2x-seq-motion-dataset",
+        default_subset_name="v2x-seq",
+        default_raw_dataset_version="v1.0",
+        raw_dataset_help="The file directory for V2X-Seq",
+    )
+    parser.add_argument("--split", choices=("auto", "mini", "train", "val", "test"), default="auto", help="Split to convert.")
+    parser.add_argument(
+        "--source",
+        choices=("auto", "cooperative", "single_vehicle", "single_infrastructure"),
+        default="auto",
+        help="Scenario source to convert.",
+    )
+    parser.add_argument("--max_files", default=None, type=int, help="Convert at most this many trajectory CSV files.")
+    parser.add_argument("--skip_maps", action="store_true", help="Skip HD map JSON parsing.")
+    parser.add_argument("--skip_dynamic_map_states", action="store_true", help="Skip traffic-light CSV parsing.")
+    return parser
+
+
+def sorted_csv_files(data_dir: Path):
+    def sort_key(path: Path):
+        return (0, int(path.stem)) if path.stem.isdigit() else (1, path.stem)
+
+    return sorted(data_dir.glob("*.csv"), key=sort_key)
+
+
+def discover_source_dirs(raw_dataset_path: Path, split: str, source: str):
+    source_defs = [item for item in SCENARIO_SOURCES if source in ("auto", item[0])]
+    split_names = ("mini", "train", "val", "test") if split == "auto" else (split,)
+    ret = []
+    for source_name, relative_roots in source_defs:
+        for relative_root in relative_roots:
+            root = raw_dataset_path / relative_root
+            if not root.exists():
+                continue
+            for split_name in split_names:
+                split_dir = root / split_name
+                if split_dir.exists():
+                    ret.append((source_name, split_name, split_dir))
+    return ret
+
+
+def list_scenarios(args):
+    raw_dataset_path = Path(args.raw_dataset_path)
+    source_dirs = discover_source_dirs(raw_dataset_path, args.split, args.source)
+    if not source_dirs:
+        raise FileNotFoundError(f"Cannot find V2X-Seq trajectory directories under {raw_dataset_path}.")
+
+    scenarios = []
+    for source_name, split_name, data_dir in source_dirs:
+        scenario_prefix = f"{SOURCE_PREFIX[source_name]}_{SPLIT_PREFIX[split_name]}"
+        for csv_path in sorted_csv_files(data_dir):
+            scenario_id = f"{scenario_prefix}_{csv_path.stem}"
+            traffic_light_path = find_traffic_light_path(raw_dataset_path, split_name, csv_path.stem)
+            scenarios.append((args, scenario_id, source_name, str(csv_path), str(traffic_light_path) if traffic_light_path else None))
+            if args.max_files is not None and len(scenarios) >= args.max_files:
+                return scenarios
+    return scenarios
+
+
+def find_traffic_light_path(raw_dataset_path: Path, split_name: str, stem: str) -> Optional[Path]:
+    traffic_root = raw_dataset_path / "cooperative-vehicle-infrastructure" / "traffic-light"
+    candidates = [
+        traffic_root / split_name / f"{stem}.csv",
+        traffic_root / f"{stem}.csv",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def point_string_to_xyz(value) -> tuple:
+    point = ast.literal_eval(value)
+    if len(point) == 2:
+        return float(point[0]), float(point[1]), 0.0
+    return float(point[0]), float(point[1]), float(point[2])
+
+
+def point_strings_to_xyz(values) -> np.ndarray:
+    if not values:
+        return np.zeros((0, 3), dtype=np.float64)
+    return np.asarray([point_string_to_xyz(point) for point in values], dtype=np.float64)
 
 
 def get_road_lane_type_and_subtype(road_lane_type):
-    if road_lane_type == 'CITY_DRIVING' or road_lane_type == 'LEFT_TURN_WAITING_ZONE' or \
-       road_lane_type == 'ROUNDABOUT' or road_lane_type == 'EMERGENCY_LANE':
-        return 'ROAD_LANE', 'URBAN_VEHICLE'
-    elif road_lane_type == 'BIKING':
-        return 'ROAD_LANE', 'URBAN_BIKE'
-    else:
-        raise ValueError("Unknown road lane type: {}".format(road_lane_type))
+    if road_lane_type in {"CITY_DRIVING", "LEFT_TURN_WAITING_ZONE", "ROUNDABOUT", "EMERGENCY_LANE"}:
+        return "ROAD_LANE", "URBAN_VEHICLE"
+    if road_lane_type == "BIKING":
+        return "ROAD_LANE", "URBAN_BIKE"
+    return "ROAD_LANE", "URBAN_UNKNOWN"
 
 
 def extract_road_lines(road_line, is_intersection):
-    road_line_polyline = np.array([eval(point) for point in road_line])
-    road_line_polyline = np.hstack((road_line_polyline, np.zeros((road_line_polyline.shape[0], 1))))
-
-    road_line_info = dict()
-    road_line_info['type'] = 'ROAD_LINE'
-    road_line_info['subtype'] = 'VIRTUAL' if is_intersection else 'UNKNOWN'
-    road_line_info['polyline'] = road_line_polyline
-    road_line_info['phase'] = 'CONVERTED'
+    road_line_info = {
+        "type": "ROAD_LINE",
+        "subtype": "VIRTUAL" if is_intersection else "UNKNOWN",
+        "polyline": point_strings_to_xyz(road_line),
+        "phase": "CONVERTED",
+    }
     return road_line_info
 
 
-def extract_map_features(map_feature_data, scenario_center_):
+def is_near(polyline: np.ndarray, scenario_center: np.ndarray) -> bool:
+    if len(polyline) == 0:
+        return False
+    midpoint = polyline[len(polyline) // 2][0:2]
+    return np.linalg.norm(midpoint - scenario_center[0:2], axis=-1) <= MAX_DISTANCE
+
+
+def extract_map_features(map_feature_data, scenario_center):
     ret = {}
 
-    road_lanes = map_feature_data['LANE']
-    stop_lines = map_feature_data['STOPLINE']
-    crosswalks = map_feature_data['CROSSWALK']
+    for road_lane_id, road_lane in map_feature_data.get("LANE", {}).items():
+        left_id = f"{road_lane_id}_1"
+        right_id = f"{road_lane_id}_2"
+        left_road_line = extract_road_lines(road_lane.get("left_boundary", []), road_lane.get("is_intersection", False))
+        right_road_line = extract_road_lines(road_lane.get("right_boundary", []), road_lane.get("is_intersection", False))
 
-    for road_lane_id in road_lanes:
-        road_lane = road_lanes[road_lane_id]
-        left_road_line_id = road_lane_id + '_1'
-        right_road_line_id = road_lane_id + '_2'
+        if not (is_near(left_road_line["polyline"], scenario_center) and is_near(right_road_line["polyline"], scenario_center)):
+            continue
 
-        left_road_line = extract_road_lines(road_lane['left_boundary'], road_lane['is_intersection'])
-        right_road_line = extract_road_lines(road_lane['right_boundary'], road_lane['is_intersection'])
+        ret[left_id] = left_road_line
+        ret[right_id] = right_road_line
+        road_lane_polyline = point_strings_to_xyz(road_lane.get("centerline", []))
 
-        if np.linalg.norm(left_road_line['polyline'][int(len(left_road_line['polyline']) / 2)][0:2] - scenario_center_[0:2], axis=-1) <= MAX_DISTANCE and \
-           np.linalg.norm(right_road_line['polyline'][int(len(right_road_line['polyline']) / 2)][0:2] - scenario_center_[0:2], axis=-1) <= MAX_DISTANCE:
-            ret[left_road_line_id] = left_road_line
-            ret[right_road_line_id] = right_road_line
+        road_lane_info = {}
+        road_lane_info["type"], road_lane_info["subtype"] = get_road_lane_type_and_subtype(road_lane.get("lane_type"))
+        road_lane_info["polyline"] = road_lane_polyline
+        road_lane_info["speed_limit"] = None
+        road_lane_info["is_intersection"] = road_lane.get("is_intersection")
+        road_lane_info["phase"] = "CONVERTED"
+        road_lane_info["lane_info"] = {
+            "entry_lane_ids": [str(item) for item in road_lane.get("predecessors", [])],
+            "exit_lane_ids": [str(item) for item in road_lane.get("successors", [])],
+            "left_lane_ids": [] if road_lane.get("l_neighbor_id") in (None, "None") else [str(road_lane["l_neighbor_id"])],
+            "right_lane_ids": [] if road_lane.get("r_neighbor_id") in (None, "None") else [str(road_lane["r_neighbor_id"])],
+        }
+        road_lane_info["boundary_info"] = {
+            "left_boundary_id": left_id,
+            "right_boundary_id": right_id,
+            "left_boundary_polyline": left_road_line["polyline"],
+            "right_boundary_polyline": right_road_line["polyline"],
+        }
+        ret[str(road_lane_id)] = road_lane_info
 
-            road_lane_polyline = np.array([eval(point) for point in road_lane['centerline']])
-            road_lane_polyline = np.hstack((road_lane_polyline, np.zeros((road_lane_polyline.shape[0], 1))))
+    for stop_line_id, stop_line in map_feature_data.get("STOPLINE", {}).items():
+        polyline = point_strings_to_xyz(stop_line.get("centerline", []))
+        if is_near(polyline, scenario_center):
+            ret[str(stop_line_id)] = {
+                "type": "OTHER",
+                "subtype": "STOP_LINE",
+                "polyline": polyline,
+                "phase": "CONVERTED",
+            }
 
-            road_lane_info = dict()
-            road_lane_info['type'], road_lane_info['subtype'] = get_road_lane_type_and_subtype(road_lane['lane_type'])
-            road_lane_info['polyline'] = road_lane_polyline
-            road_lane_info['speed_limit'] = None
-            road_lane_info['is_intersection'] = road_lane['is_intersection']
-            road_lane_info['phase'] = 'CONVERTED'
-
-            road_lane_info['lane_info'] = dict()
-            road_lane_info['lane_info']['entry_lane_ids'] = road_lane['successors']
-            road_lane_info['lane_info']['exit_lane_ids'] = road_lane['predecessors']
-            road_lane_info['lane_info']['left_lane_ids'] = [road_lane['l_neighbor_id']] if road_lane['l_neighbor_id'] != 'None' else []
-            road_lane_info['lane_info']['right_lane_ids'] = [road_lane['r_neighbor_id']] if road_lane['r_neighbor_id'] != 'None' else []
-
-            road_lane_info['boundary_info'] = dict()
-            road_lane_info['boundary_info']['left_boundary_id'] = left_road_line_id
-            road_lane_info['boundary_info']['right_boundary_id'] = right_road_line_id
-            road_lane_info['boundary_info']['left_boundary_polyline'] = left_road_line['polyline']
-            road_lane_info['boundary_info']['right_boundary_polyline'] = right_road_line['polyline']
-
-            ret[str(road_lane_id)] = road_lane_info
-
-    for stop_line_id in stop_lines:
-        stop_line = stop_lines[stop_line_id]
-        stop_line_polyline = np.array([eval(point) for point in stop_line['centerline']])
-        stop_line_polyline = np.hstack((stop_line_polyline, np.zeros((stop_line_polyline.shape[0], 1))))
-
-        stop_line_info = dict()
-        stop_line_info['type'] = 'OTHER'
-        stop_line_info['subtype'] = 'STOP_LINE'
-        stop_line_info['polyline'] = stop_line_polyline
-        stop_line_info['phase'] = 'CONVERTED'
-
-        if np.linalg.norm(stop_line_info['polyline'][int(len(stop_line_info['polyline']) / 2)][0:2] - scenario_center_[0:2], axis=-1) <= MAX_DISTANCE:
-            ret[str(stop_line_id)] = stop_line_info
-
-    for crosswalk_id in crosswalks:
-        crosswalk = crosswalks[crosswalk_id]
-        crosswalk_polygon = np.array([eval(point) for point in crosswalk['polygon']])
-        crosswalk_polygon = np.hstack((crosswalk_polygon, np.zeros((crosswalk_polygon.shape[0], 1))))
-
-        crosswalk_info = dict()
-        crosswalk_info['type'] = 'OTHER'
-        crosswalk_info['subtype'] = 'CROSSWALK'
-        crosswalk_info['polygon'] = crosswalk_polygon
-        crosswalk_info['phase'] = 'CONVERTED'
-
-        if np.linalg.norm(crosswalk_info['polygon'][int(len(crosswalk_info['polygon']) / 2)][0:2] - scenario_center_[0:2], axis=-1) <= MAX_DISTANCE:
-            ret[str(crosswalk_id)] = crosswalk_info
+    for crosswalk_id, crosswalk in map_feature_data.get("CROSSWALK", {}).items():
+        polygon = point_strings_to_xyz(crosswalk.get("polygon", []))
+        if is_near(polygon, scenario_center):
+            ret[str(crosswalk_id)] = {
+                "type": "OTHER",
+                "subtype": "CROSSWALK",
+                "polygon": polygon,
+                "phase": "CONVERTED",
+            }
 
     return ret
 
 
 def extract_numbers(text):
-    numbers = re.findall(r'\d+', text)
-    return numbers
+    return re.findall(r"\d+", str(text))
 
 
-def get_object_type_and_subtype(object_type_, object_subtype_):
-    if object_type_ == 'VEHICLE' and (object_subtype_ == 'CAR' or pd.isna(object_subtype_)):
-        return 'VEHICLE', 'CAR'
-    elif object_type_ == 'VEHICLE' and object_subtype_ == 'TRUCK':
-        return 'VEHICLE', 'TRUCK'
-    elif object_type_ == 'VEHICLE' and object_subtype_ == 'VAN':
-        return 'VEHICLE', 'VAN'
-    elif object_type_ == 'VEHICLE' and object_subtype_ == 'BUS':
-        return 'VEHICLE', 'BUS'
-    elif object_type_ == 'VEHICLE' and object_subtype_ == 'UNKNOWN':
-        return 'VEHICLE', 'UNKNOWN'
-    elif object_type_ == 'BICYCLE' and object_subtype_ == 'CYCLIST':
-        return 'CYCLIST', 'BICYCLIST'
-    elif object_type_ == 'BICYCLE' and object_subtype_ == 'TRICYCLIST':
-        return 'CYCLIST', 'TRICYCLIST'
-    elif object_type_ == 'BICYCLE' and object_subtype_ == 'MOTORCYCLIST':
-        return 'CYCLIST', 'MOTORCYCLIST'
-    elif object_type_ == 'BICYCLE' and object_subtype_ == 'UNKNOWN':
-        return 'CYCLIST', 'UNKNOWN'
-    elif object_type_ == 'PEDESTRIAN' and (object_subtype_ == 'PEDESTRIAN' or object_subtype_ == 'UNKNOWN'):
-        return 'PEDESTRIAN', 'PEDESTRIAN'
-    elif (object_type_ == 'BICYCLE' and (object_subtype_ == 'PEDESTRIAN' or object_subtype_ == 'VAN' or object_subtype_ == 'CAR' or object_subtype_ == 'TRAFFICCONE' or object_subtype_ == 'TRUCK' or object_subtype_ == 'UNKNOWN_UNMOVABLE')) or \
-         (object_type_ == 'VEHICLE' and (object_subtype_ == 'MOTORCYCLIST' or object_subtype_ == 'TRICYCLIST' or object_subtype_ == 'UNKNOWN_UNMOVABLE')) or \
-         (object_type_ == 'PEDESTRIAN' and (object_subtype_ == 'CYCLIST' or object_subtype_ == 'MOTORCYCLIST' or object_subtype_ == 'TRAFFICCONE')):
-        return 'UNKNOWN', 'UNKNOWN'
-    else:
-        raise ValueError("Unknown object type: {}, subtype: {}".format(object_type_, object_subtype_))
+def get_object_type_and_subtype(object_type, object_subtype):
+    if pd.isna(object_subtype):
+        object_subtype = ""
+    object_type = str(object_type).upper()
+    object_subtype = str(object_subtype).upper()
+
+    if object_type == "VEHICLE" and object_subtype in {"", "CAR"}:
+        return "VEHICLE", "CAR"
+    if object_type == "VEHICLE" and object_subtype in {"TRUCK", "VAN", "BUS", "UNKNOWN"}:
+        return "VEHICLE", object_subtype
+    if object_type == "BICYCLE" and object_subtype in {"CYCLIST", "TRICYCLIST", "MOTORCYCLIST", "UNKNOWN"}:
+        return "CYCLIST", {"CYCLIST": "BICYCLIST"}.get(object_subtype, object_subtype)
+    if object_type == "PEDESTRIAN" and object_subtype in {"PEDESTRIAN", "UNKNOWN"}:
+        return "PEDESTRIAN", "PEDESTRIAN"
+    return "UNKNOWN", "UNKNOWN"
 
 
-def extract_object_tracks(tracks, scenario_length_, timestamps):
-    ret = dict()
-    if np.sum(tracks['tag'] == 'AV'):
-        sdc_id = str(tracks[tracks['tag'] == 'AV'].reset_index(drop=True).at[0, 'id'])
-    else:
-        sdc_id = None
-    for object_id in tracks['id'].unique():
-        object_type = tracks[tracks['id'] == object_id]['type'].iloc[0]
-        object_subtype = tracks[tracks['id'] == object_id]['sub_type'].iloc[0]
-        object_state = object_state_template(scenario_length_)
-        object_state['type'], object_state['subtype'] = get_object_type_and_subtype(object_type, object_subtype)
-        object_state['phase'] = 'CONVERTED'
-        for frame, timestamp in enumerate(timestamps):
-            if not tracks[(tracks['timestamp'] == timestamp) & (tracks['id'] == object_id)].empty:
-                object_state['state']['global_center'][frame] = np.array([tracks[(tracks['timestamp'] == timestamp) & (tracks['id'] == object_id)]['x'].iloc[0],
-                                                                          tracks[(tracks['timestamp'] == timestamp) & (tracks['id'] == object_id)]['y'].iloc[0],
-                                                                          0.0])
-                if str(object_id) == sdc_id:
-                    object_state['state']['size'][frame] = (4.76, 1.87, 1.65)
-                else:
-                    object_state['state']['size'][frame] = (tracks[(tracks['timestamp'] == timestamp) & (tracks['id'] == object_id)]['length'].iloc[0],
-                                                            tracks[(tracks['timestamp'] == timestamp) & (tracks['id'] == object_id)]['width'].iloc[0],
-                                                            tracks[(tracks['timestamp'] == timestamp) & (tracks['id'] == object_id)]['height'].iloc[0])
-                object_state['state']['heading'][frame] = tracks[(tracks['timestamp'] == timestamp) & (tracks['id'] == object_id)]['theta'].iloc[0]
-                object_state['state']['valid'][frame] = True
+def safe_float(value, default=0.0) -> float:
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if np.isnan(value) else value
+
+
+def extract_object_tracks(tracks, scenario_length, timestamps):
+    ret = {}
+    av_tracks = tracks[tracks["tag"] == "AV"]
+    sdc_id = str(av_tracks.reset_index(drop=True).at[0, "id"]) if not av_tracks.empty else None
+    timestamp_index = {timestamp: index for index, timestamp in enumerate(timestamps)}
+
+    for object_id, object_track in tracks.groupby("id", sort=False):
+        object_type = object_track["type"].iloc[0]
+        object_subtype = object_track["sub_type"].iloc[0]
+        object_state = object_state_template(scenario_length)
+        object_state["type"], object_state["subtype"] = get_object_type_and_subtype(object_type, object_subtype)
+        object_state["phase"] = "CONVERTED"
+        for row in object_track.itertuples(index=False):
+            frame = timestamp_index[row.timestamp]
+            heading = safe_float(row.theta)
+            object_state["state"]["global_center"][frame] = (safe_float(row.x), safe_float(row.y), safe_float(getattr(row, "z", 0.0)))
+            object_state["state"]["size"][frame] = (
+                4.76 if str(object_id) == sdc_id else safe_float(row.length),
+                1.87 if str(object_id) == sdc_id else safe_float(row.width),
+                1.65 if str(object_id) == sdc_id else safe_float(row.height),
+            )
+            object_state["state"]["heading"][frame] = heading
+            object_state["state"]["local_velocity"][frame] = global_to_local_velocity(safe_float(row.v_x), safe_float(row.v_y), heading)
+            object_state["state"]["valid"][frame] = True
         ret[str(object_id)] = object_state
     return ret, sdc_id
 
 
-def extract_dynamic_map_states(dynamic_map_state_data, scenario_length_, timestamps):
-    ret = dict()
-    for lane_id in dynamic_map_state_data['lane_id'].unique():
-        traffic_light = dynamic_map_state_data[dynamic_map_state_data['lane_id'] == lane_id].reset_index(drop=True)
-
-        dynamic_map_state = traffic_light_state_template(lane_id, scenario_length_)
-        dynamic_map_state['id'] = traffic_light.at[0, 'lane_id']
-        dynamic_map_state['stop_point'][0] = traffic_light.at[0, 'x']
-        dynamic_map_state['stop_point'][1] = traffic_light.at[0, 'y']
-        dynamic_map_state['type'], dynamic_map_state['subtype'] = 'TRAFFIC_LIGHT', 'UNKNOWN'
+def extract_dynamic_map_states(dynamic_map_state_data, scenario_length, timestamps):
+    ret = {}
+    for lane_id, traffic_light in dynamic_map_state_data.groupby("lane_id", sort=False):
+        traffic_light = traffic_light.reset_index(drop=True)
+        dynamic_map_state = traffic_light_state_template(lane_id, scenario_length)
+        dynamic_map_state["id"] = traffic_light.at[0, "lane_id"]
+        dynamic_map_state["stop_point"][0] = traffic_light.at[0, "x"]
+        dynamic_map_state["stop_point"][1] = traffic_light.at[0, "y"]
+        dynamic_map_state["type"], dynamic_map_state["subtype"] = "TRAFFIC_LIGHT", "UNKNOWN"
         for frame, timestamp in enumerate(timestamps):
-            if not traffic_light[traffic_light['timestamp'] == timestamp].empty:
-                state = traffic_light[traffic_light['timestamp'] == timestamp].reset_index(drop=True)
-                dynamic_map_state['state']['color'][frame] = state['color_1'].iloc[0]
-                dynamic_map_state['state']['valid'][frame] = True
-        dynamic_map_state['controlled_lane'] = None
-        dynamic_map_state['phase'] = 'CONVERTED'
-
+            state = traffic_light[traffic_light["timestamp"] == timestamp]
+            if not state.empty:
+                dynamic_map_state["state"]["color"][frame] = state.reset_index(drop=True)["color_1"].iloc[0]
+                dynamic_map_state["state"]["valid"][frame] = True
+        dynamic_map_state["controlled_lane"] = None
+        dynamic_map_state["phase"] = "CONVERTED"
         ret[str(lane_id)] = dynamic_map_state
     return ret
 
 
-def process_scenario(params):
-    args, scenario_id = params
-    vsmd_file_dir = args.raw_dataset_path
-    scenario = dict()
-    if scenario_id[0] == 't':
-        object_track_data_path = vsmd_file_dir + '/cooperative-vehicle-infrastructure/vehicle-trajectories/train/' + scenario_id[2:] + '.csv'
-    elif scenario_id[0] == 'v':
-        object_track_data_path = vsmd_file_dir + '/cooperative-vehicle-infrastructure/vehicle-trajectories/val/' + scenario_id[2:] + '.csv'
-    elif scenario_id[0:2] == '_t':
-        object_track_data_path = vsmd_file_dir + '/single-vehicle/trajectories/train/' + scenario_id[3:] + '.csv'
-    elif scenario_id[0:2] == '_v':
-        object_track_data_path = vsmd_file_dir + '/single-vehicle/trajectories/val/' + scenario_id[3:] + '.csv'
-    elif scenario_id[0:3] == '__t':
-        object_track_data_path = vsmd_file_dir + '/single-infrastructure/trajectories/train/' + scenario_id[4:] + '.csv'
-    elif scenario_id[0:3] == '__v':
-        object_track_data_path = vsmd_file_dir + '/single-infrastructure/trajectories/val/' + scenario_id[4:] + '.csv'
-    else:
-        raise ValueError("Unknown scenario id: ".format(scenario_id))
+def scenario_center_from_tracks(object_tracks, sdc_id, scenario_length):
+    center_id = sdc_id if sdc_id else next(iter(object_tracks.keys()))
+    valid = object_tracks[center_id]["state"]["valid"]
+    centers = object_tracks[center_id]["state"]["global_center"]
+    if valid.any():
+        return centers[np.where(valid)[0][len(np.where(valid)[0]) // 2]]
+    return centers[scenario_length // 2]
 
+
+def map_path_for_tracks(args, tracks: pd.DataFrame) -> Optional[Path]:
+    intersection_id = tracks["intersect_id"].iloc[0]
+    numbers = extract_numbers(intersection_id)
+    if not numbers:
+        return None
+    map_index = int(numbers[0])
+    if map_index < 1 or map_index > 28:
+        return None
+    map_path = Path(args.raw_dataset_path) / "maps" / f"yizhuang_hdmap{map_index}.json"
+    return map_path if map_path.exists() else None
+
+
+def city_name(value) -> str:
+    value = str(value).upper()
+    if value == "PEK":
+        return "BEIJING"
+    return value
+
+
+def process_scenario(params):
+    args, scenario_id, source_name, object_track_data_path, dynamic_map_state_data_path = params
     raw_object_track_data = pd.read_csv(object_track_data_path)
-    timestamps = np.array(raw_object_track_data['timestamp'].unique())
+    timestamps = np.asarray(raw_object_track_data["timestamp"].drop_duplicates().to_numpy())
     scenario_length = len(timestamps)
     converted_object_track_data, sdc_id = extract_object_tracks(raw_object_track_data, scenario_length, timestamps)
+    scenario_center = scenario_center_from_tracks(converted_object_track_data, sdc_id, scenario_length)
 
-    if sdc_id:
-        scenario_center = np.array([converted_object_track_data[sdc_id]['state']['global_center'][int(scenario_length/2), 0],
-                                    converted_object_track_data[sdc_id]['state']['global_center'][int(scenario_length/2), 1],
-                                    converted_object_track_data[sdc_id]['state']['global_center'][int(scenario_length/2), 2]])
+    if args.skip_maps:
+        converted_map_feature_data = {}
     else:
-        fake_sdc_id = list(converted_object_track_data.keys())[0]
-        scenario_center = np.array([converted_object_track_data[fake_sdc_id]['state']['global_center'][int(scenario_length/2), 0],
-                                    converted_object_track_data[fake_sdc_id]['state']['global_center'][int(scenario_length/2), 1],
-                                    converted_object_track_data[fake_sdc_id]['state']['global_center'][int(scenario_length/2), 2]])
+        map_path = map_path_for_tracks(args, raw_object_track_data)
+        if map_path is None:
+            converted_map_feature_data = {}
+        else:
+            with open(map_path, "r", encoding="utf-8") as file:
+                converted_map_feature_data = extract_map_features(json.load(file), scenario_center)
 
-    intersection_id = raw_object_track_data['intersect_id'][0]
-    numbers = extract_numbers(intersection_id)
-
-    if int(numbers[0]) < 1 or int(numbers[0]) > 28:
-        return
-
-    map_feature_data_path = vsmd_file_dir + '/maps/' + 'yizhuang_hdmap' + numbers[0] + '.json'
-    with open(map_feature_data_path, 'r', encoding='utf-8') as file:
-        raw_map_feature_data = json.load(file)
-    converted_map_feature_data = extract_map_features(raw_map_feature_data, scenario_center)
-
-    if scenario_id[0] == 't':
-        dynamic_map_state_data_path = vsmd_file_dir + '/cooperative-vehicle-infrastructure/traffic-light/train/' + scenario_id[2:] + '.csv'
-    elif scenario_id[0] == 'v':
-        dynamic_map_state_data_path = vsmd_file_dir + '/cooperative-vehicle-infrastructure/traffic-light/val/' + scenario_id[2:] + '.csv'
-    elif scenario_id[0] == '_':
-        dynamic_map_state_data_path = ''
+    if args.skip_dynamic_map_states or source_name != "cooperative" or dynamic_map_state_data_path is None:
+        converted_dynamic_map_state_data = {}
     else:
-        raise ValueError("Unknown scenario id: ".format(scenario_id))
-    if scenario_id[0] != '_':
         raw_dynamic_map_state_data = pd.read_csv(dynamic_map_state_data_path)
         converted_dynamic_map_state_data = extract_dynamic_map_states(raw_dynamic_map_state_data, scenario_length, timestamps)
-    else:
-        converted_dynamic_map_state_data = dict()
 
-    extra_information = dict()
-    extra_information['id'] = scenario_id
-    extra_information['dataset'] = 'V2X-Seq'
-    extra_information['version'] = args.raw_dataset_version
-    extra_information['country'] = 'CHINA'
-    extra_information['city'] = 'BEIJING'
-    extra_information['location'] = None
-    extra_information['sdc_id'] = sdc_id
-    extra_information['scene_length'] = scenario_length
-    extra_information['sampling_rate'] = 10
-    extra_information['timestamp'] = timestamps - timestamps[0]
-    extra_information['init_time'] = timestamps[0]
-
-    scenario['object_tracks'] = converted_object_track_data
-    scenario['map_features'] = converted_map_feature_data
-    scenario['dynamic_map_states'] = converted_dynamic_map_state_data
-    scenario['extra_information'] = extra_information
-
+    scenario = {
+        "object_tracks": converted_object_track_data,
+        "map_features": converted_map_feature_data,
+        "dynamic_map_states": converted_dynamic_map_state_data,
+        "extra_information": {
+            "id": scenario_id,
+            "dataset": "V2X-Seq",
+            "version": args.raw_dataset_version,
+            "country": "CHINA",
+            "city": city_name(raw_object_track_data["city"].iloc[0]),
+            "location": None,
+            "sdc_id": sdc_id,
+            "scene_length": scenario_length,
+            "sampling_rate": 10,
+            "timestamp": timestamps - timestamps[0],
+            "init_time": timestamps[0],
+        },
+    }
     save_scenario_pickle(scenario, args, scenario_id)
 
 
 def convert(args):
-    scenario_ids = list_scenario_ids(args.raw_dataset_path)
-    params = [(args, scenario_id) for scenario_id in scenario_ids]
-    run_tasks(process_scenario, params, len(scenario_ids), args, tqdm)
+    scenarios = list_scenarios(args)
+    run_tasks(process_scenario, scenarios, len(scenarios), args, tqdm)
 
 
 def main(argv=None):
