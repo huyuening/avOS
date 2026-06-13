@@ -1,0 +1,19 @@
+# Waymo Open converter environment.
+# This project uses local WOMD protobuf files:
+#   from scenario_convertor.womd_proto.pb2.scenario_pb2 import Scenario
+# Do not install waymo-open-dataset-tf-* unless you explicitly switch back to
+# Waymo's official Python package.
+#
+# Notes:
+# - TensorFlow is still required for tf.data.TFRecordDataset.
+# - TensorFlow 2.10.x is the last native-Windows TensorFlow line.
+# - The vendored protobuf files use the older generated-code API, so keep
+#   protobuf below 4.
+
+tensorflow==2.10.1; platform_system != "Darwin" or platform_machine != "arm64"
+tensorflow-macos==2.10.0; platform_system == "Darwin" and platform_machine == "arm64"
+protobuf>=3.20.3,<4
+numpy>=1.21,<1.24
+scipy>=1.7,<1.11
+shapely>=1.8,<2
+tqdm>=4.64,<5
