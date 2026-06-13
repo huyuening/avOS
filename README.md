@@ -22,7 +22,7 @@
 
 ### 1. 创建环境
 
-推荐使用 Python 3.10。当前 `requirements.txt` 是通用基础依赖，覆盖 Waymo Open、nuPlan 直接解析后端以及 CSV/XML/地图基础解析依赖，不包含 `waymo-open-dataset-tf-*` 官方包。
+推荐使用 Python 3.10。当前 `requirements.txt` 是通用基础依赖，覆盖 Waymo Open、nuPlan 直接解析后端、Lyft Level 5 直接 zarr/protobuf 后端以及 CSV/XML/地图基础解析依赖，不包含 `waymo-open-dataset-tf-*` 或 `l5kit` 官方包。
 
 ```bash
 conda create -n avos python=3.10 -y
@@ -105,10 +105,17 @@ python src/convertor.py \
 
 某些转换器有额外参数。额外参数必须在只选择单个数据集时使用，并放在单独的 `--` 后面。
 
-Lyft train split:
+Lyft sample split:
 
 ```bash
-python src/convertor.py --dataset lyft-level-5 -- --split train
+python src/convertor.py \
+  --dataset lyft-level-5 \
+  --raw_dataset_path raw_dataset/Lyft \
+  --converted_dataset_path converted-dataset \
+  --num_workers 1 \
+  -- \
+  --split sample \
+  --max_scenarios 1
 ```
 
 nuPlan mini/trainval/test split:
@@ -146,15 +153,14 @@ python src/convertor.py \
   --skip_maps
 ```
 
-Lyft 自定义 l5kit 配置：
+Lyft train split:
 
 ```bash
 python src/convertor.py \
   --dataset lyft-level-5 \
   --raw_dataset_path /data/lyft-level-5-motion-dataset \
   -- \
-  --split val \
-  --visualisation_config_path /path/to/visualisation_config.yaml
+  --split train
 ```
 
 ## 输出格式
@@ -345,6 +351,35 @@ python src/convertor.py \
   --max_files 1
 ```
 
+## Lyft Level 5 说明
+
+Lyft 转换器直接读取 L5Kit zarr 数据和 `semantic_map/semantic_map.pb`，不依赖完整 `l5kit` 包。官方 `l5kit 1.5.0` 的 PyPI 元数据只标注 Python 3.7/3.8，并依赖 `numpy~=1.19.0`、`torch<2`、`torchvision<1`、OpenCV、notebook、bokeh、gym 等训练/可视化依赖；这些约束对 macOS Apple Silicon、Windows 和 Python 3.10 都不够友好。
+
+Lyft 目录通常应类似：
+
+```text
+raw_dataset/Lyft/
+├── sample.zarr/
+├── semantic_map/
+│   └── semantic_map.pb
+└── meta.json
+```
+
+如果 `sample.zarr` 中缺少 `.zgroup/.zarray/.zattrs` 这类 zarr 元数据文件，转换器会按 Lyft/L5Kit 固定 dtype 和 chunk 大小直接解码 chunk 文件。缺少 `meta.json` 时仍会输出轨迹，但 `map_features` 会为空；如需地图特征，请补齐包含 `world_to_ecef` 的 `meta.json`，或通过 `--map_metadata_path` 指定。
+
+Lyft 小规模试跑：
+
+```bash
+python src/convertor.py \
+  --dataset lyft-level-5 \
+  --raw_dataset_path raw_dataset/Lyft \
+  --converted_dataset_path converted-dataset \
+  --num_workers 1 \
+  -- \
+  --split sample \
+  --max_scenarios 1
+```
+
 ## 跨平台建议
 
 - Linux: 最推荐，重依赖数据集更容易配置。
@@ -352,6 +387,7 @@ python src/convertor.py \
 - Windows: Waymo Open 可尝试 TensorFlow 2.10.x 原生环境；nuPlan 默认直接解析后端不依赖 Linux-only 的 devkit 运行链路。
 - nuPlan 地图解析依赖 `pyogrio/geopandas`，本质上依赖 GDAL 相关二进制包；优先使用 conda 或官方 wheel，遇到安装问题时可先用 `--skip_maps` 验证轨迹读取。
 - Shifts 使用内置 protobuf 解码 `.pb` 文件，不依赖官方完整 `ysdc_dataset_api` 运行环境。
+- Lyft Level 5 使用直接 zarr/protobuf 后端，不依赖完整 `l5kit`。如果原始数据缺少 `meta.json`，会跳过地图但保留轨迹转换。
 - 调试时先使用 `--num_workers 1`，确认单进程可运行后再提高并行数。
 
 ## 常见问题
@@ -397,6 +433,7 @@ python src/convertor.py --dataset waymo-open argoverse-1 v2x-seq --continue_on_e
 │       ├── interaction-convertor.py
 │       ├── levelxdata-convertor.py
 │       ├── lyft-level-5-convertor.py
+│       ├── lyft_proto/              # Lyft 地图 protobuf 定义
 │       ├── nuplan-convertor.py
 │       ├── shifts-convertor.py
 │       ├── shifts_proto/            # Shifts 场景 protobuf 定义
