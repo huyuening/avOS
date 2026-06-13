@@ -9,26 +9,59 @@ ensure_internal_converter_run()
 
 import argparse
 import numpy as np
-import os
 import pandas as pd
 import re
 import xml.etree.ElementTree as ET
 
+from pathlib import Path
 from tqdm import tqdm
-from utils import add_common_converter_args, get_multipolygon, get_road_lane_polyline, object_state_template, run_tasks, save_scenario_pickle
+try:
+    from scenario_convertor.utils import (
+        add_common_converter_args,
+        get_multipolygon,
+        get_road_lane_polyline,
+        object_state_template,
+        run_tasks,
+        save_scenario_pickle,
+    )
+except ModuleNotFoundError:
+    from utils import (
+        add_common_converter_args,
+        get_multipolygon,
+        get_road_lane_polyline,
+        object_state_template,
+        run_tasks,
+        save_scenario_pickle,
+    )
 
 
 def build_arg_parser():
     parser = argparse.ArgumentParser(description='INTERACTION Dataset Converter')
-    return add_common_converter_args(
+    add_common_converter_args(
         parser,
         default_raw_dataset_path='/dataset/x-scene/human-vehicle-dataset/human-vehicle-trajectory-dataset/interaction-dataset',
         default_subset_name='interaction',
         default_raw_dataset_version='1.1',
         raw_dataset_help='The file directory for INTERACTION',
     )
+    parser.add_argument(
+        '--locations',
+        nargs='+',
+        default=['all'],
+        help='Locations to convert. Use "all" or names such as DR_CHN_Merging_ZS.',
+    )
+    parser.add_argument('--max_files', default=None, type=int, help='Convert at most this many recording ids.')
+    parser.add_argument(
+        '--max_scenarios_per_file',
+        default=None,
+        type=int,
+        help='Convert at most this many 20-second scenarios per recording.',
+    )
+    parser.add_argument('--skip_maps', action='store_true', help='Skip OSM map parsing.')
+    return parser
 
-map_file_names = {
+
+MAP_DATASET_DIRS = {
     'DR_CHN_Merging_ZS': 'INTERACTION-Dataset-DR-v1_1',
     'DR_CHN_Roundabout_LN': 'INTERACTION-Dataset-DR-v1_1',
     'DR_DEU_Merging_MT': 'INTERACTION-Dataset-DR-v1_1',
@@ -42,6 +75,45 @@ map_file_names = {
     'DR_USA_Roundabout_SR': 'INTERACTION-Dataset-DR-v1_1',
     'TC_BGR_Intersection_VA': 'INTERACTION-Dataset-TC-v1_0'
 }
+
+
+def selected_locations(args):
+    if args.locations == ['all'] or 'all' in args.locations:
+        return list(MAP_DATASET_DIRS.keys())
+    unknown = sorted(set(args.locations) - set(MAP_DATASET_DIRS))
+    if unknown:
+        raise ValueError(f"Unknown INTERACTION locations: {unknown}")
+    return args.locations
+
+
+def file_sort_key(path):
+    match = re.search(r'_(\d+)\.csv$', Path(path).name)
+    return int(match.group(1)) if match else Path(path).name
+
+
+def discover_recordings(args):
+    raw_dataset_path = Path(args.raw_dataset_path)
+    recordings = []
+    for map_file_name in selected_locations(args):
+        dataset_dir = raw_dataset_path / MAP_DATASET_DIRS[map_file_name]
+        track_dir = dataset_dir / 'recorded_trackfiles' / map_file_name
+        map_path = dataset_dir / 'maps' / f'{map_file_name}.osm_xy'
+        if not track_dir.exists():
+            raise FileNotFoundError(f'Cannot find INTERACTION track directory: {track_dir}')
+        if not args.skip_maps and not map_path.exists():
+            raise FileNotFoundError(f'Cannot find INTERACTION map file: {map_path}')
+
+        groups = {}
+        for csv_path in sorted(track_dir.glob('*_tracks_*.csv'), key=file_sort_key):
+            match = re.search(r'_(\d+)\.csv$', csv_path.name)
+            if not match:
+                continue
+            groups.setdefault(match.group(1), []).append(csv_path)
+        for recording_id in sorted(groups, key=int):
+            recordings.append((args, map_file_name, recording_id, [str(path) for path in sorted(groups[recording_id])], str(map_path)))
+            if args.max_files is not None and len(recordings) >= args.max_files:
+                return recordings
+    return recordings
 
 
 def get_object_type(object_type_):
@@ -62,7 +134,9 @@ def get_object_type(object_type_):
 
 
 def get_polyline(road_line_ref_ids_, polys_):
-    road_line_polyline = np.array([polys_[road_line_ref_id] for road_line_ref_id in road_line_ref_ids_])
+    if not road_line_ref_ids_:
+        return np.zeros((0, 3), dtype=np.float64)
+    road_line_polyline = np.asarray([polys_[road_line_ref_id] for road_line_ref_id in road_line_ref_ids_], dtype=np.float64)
     road_line_polyline = np.hstack((road_line_polyline, np.zeros((road_line_polyline.shape[0], 1))))
     return road_line_polyline
 
@@ -145,6 +219,8 @@ def extract_map_features(raw_map_feature_data_, polys_, map_file_name_):
         static_map_ref_ids = [node.attrib['ref'] for node in way.findall('nd')]
         tags = {tag.attrib['k']: tag.attrib['v'] for tag in way.findall('tag')}
 
+        if 'type' not in tags:
+            tags['type'] = ''
         if 'subtype' not in tags:
             tags['subtype'] = ''
 
@@ -171,6 +247,10 @@ def extract_map_features(raw_map_feature_data_, polys_, map_file_name_):
 
         tags = {tag.attrib['k']: tag.attrib['v'] for tag in relation.findall('tag')}
 
+        if 'type' not in tags:
+            tags['type'] = ''
+        if 'subtype' not in tags:
+            tags['subtype'] = ''
         if 'region' not in tags:
             tags['region'] = ''
         if 'one_way' not in tags:
@@ -222,113 +302,125 @@ def extract_map_features(raw_map_feature_data_, polys_, map_file_name_):
     return ret
 
 
-def extract_object_tracks(raw_object_track_data_part_, scenario_idx_, scenario_length_):
+def extract_object_tracks(raw_object_track_data_part_, scenario_start_frame_, scenario_length_):
     ret = dict()
-    for object_id in raw_object_track_data_part_['track_id'].unique():
-        object_track = raw_object_track_data_part_[raw_object_track_data_part_['track_id'] == object_id]
-
-        object_id = str(object_id)
+    for object_id, object_track in raw_object_track_data_part_.groupby('track_id', sort=False):
         object_type = object_track['agent_type'].iloc[0]
         object_state = object_state_template(scenario_length_)
 
         object_state['type'], object_state['subtype'] = get_object_type(object_type)
         object_state['phase'] = 'CONVERTED'
-        for idx, frame in enumerate(range(scenario_idx_*scenario_length_+1, (scenario_idx_+1)*scenario_length_+1)):
-            if not object_track[object_track['frame_id'] == frame].empty:
-                object_state['state']['global_center'][idx] = (object_track[object_track['frame_id'] == frame]['x'].item(), object_track[object_track['frame_id'] == frame]['y'].item(), 0.0)
-                if 'psi_rad' in object_track.columns:
-                    object_state['state']['heading'][idx] = object_track[object_track['frame_id'] == frame]['psi_rad'].item()
-                if 'length' in object_track.columns and 'width' in object_track.columns:
-                    object_state['state']['size'][idx] = (object_track[object_track['frame_id'] == frame]['length'].item(), object_track[object_track['frame_id'] == frame]['width'].item(), 0.0)
-                object_state['state']['valid'][idx] = True
-        ret[object_id] = object_state
+        frame_indices = object_track['frame_id'].to_numpy(dtype=np.int64) - scenario_start_frame_
+        valid_rows = (frame_indices >= 0) & (frame_indices < scenario_length_)
+        frame_indices = frame_indices[valid_rows]
+        object_track = object_track.loc[valid_rows]
+
+        object_state['state']['global_center'][frame_indices, 0] = object_track['x'].to_numpy(dtype=np.float64)
+        object_state['state']['global_center'][frame_indices, 1] = object_track['y'].to_numpy(dtype=np.float64)
+
+        if 'psi_rad' in object_track.columns:
+            headings = object_track['psi_rad'].fillna(0.0).to_numpy(dtype=np.float64)
+        elif 'vx' in object_track.columns and 'vy' in object_track.columns:
+            headings = np.arctan2(object_track['vy'].fillna(0.0).to_numpy(dtype=np.float64), object_track['vx'].fillna(0.0).to_numpy(dtype=np.float64))
+        else:
+            headings = np.zeros(len(frame_indices), dtype=np.float64)
+        object_state['state']['heading'][frame_indices] = headings
+
+        if 'length' in object_track.columns and 'width' in object_track.columns:
+            object_state['state']['size'][frame_indices, 0] = object_track['length'].fillna(0.0).to_numpy(dtype=np.float64)
+            object_state['state']['size'][frame_indices, 1] = object_track['width'].fillna(0.0).to_numpy(dtype=np.float64)
+        if 'vx' in object_track.columns and 'vy' in object_track.columns:
+            vx = object_track['vx'].fillna(0.0).to_numpy(dtype=np.float64)
+            vy = object_track['vy'].fillna(0.0).to_numpy(dtype=np.float64)
+            object_state['state']['local_velocity'][frame_indices, 0] = vx * np.cos(headings) + vy * np.sin(headings)
+            object_state['state']['local_velocity'][frame_indices, 1] = -vx * np.sin(headings) + vy * np.cos(headings)
+
+        object_state['state']['valid'][frame_indices] = True
+        ret[str(object_id)] = object_state
     return ret
 
 
-def process_scenario(params):
-    args, map_file_name = params
-    base_dir = args.raw_dataset_path.rstrip('/') + '/'
+def load_map_features(map_feature_data_path, map_file_name, skip_maps):
+    if skip_maps:
+        return {}
+
+    raw_map_feature_data = ET.parse(map_feature_data_path).getroot()
+    polys = {}
+    for node in raw_map_feature_data.findall('node'):
+        node_id = node.attrib['id']
+        node_x, node_y = (float(node.attrib['x']), float(node.attrib['y']))
+        polys[node_id] = (node_x, node_y)
+    return extract_map_features(raw_map_feature_data, polys, map_file_name)
+
+
+def interaction_metadata(map_file_name):
+    metadata = {
+        'dataset': 'INTERACTION',
+        'version': '1.0' if map_file_name == 'TC_BGR_Intersection_VA' else '1.1',
+        'country': None,
+        'city': None,
+        'location': map_file_name,
+    }
+    if map_file_name.startswith('DR_CHN'):
+        metadata['country'] = 'CHINA'
+    elif map_file_name.startswith('DR_DEU'):
+        metadata['country'] = 'GERMANY'
+    elif map_file_name.startswith('DR_USA'):
+        metadata['country'] = 'AMERICA'
+    elif map_file_name.startswith('TC_BGR'):
+        metadata['country'] = 'BULGARIA'
+    else:
+        raise ValueError(f'Unknown country name: {map_file_name[3:6]}')
+    return metadata
+
+
+def process_recording(params):
+    args, map_file_name, recording_id, track_paths, map_feature_data_path = params
     scenario_duration = 20
     scenario_length = 20 * 10
 
-    object_track_file_dir = base_dir + map_file_names[map_file_name] + '/recorded_trackfiles/' + map_file_name
+    raw_object_track_data = pd.concat([pd.read_csv(path) for path in track_paths], ignore_index=True)
+    scenario_num = int(raw_object_track_data['frame_id'].max() // scenario_length)
+    if args.max_scenarios_per_file is not None:
+        scenario_num = min(scenario_num, args.max_scenarios_per_file)
 
-    raw_object_track_data_paths = [object_track_file_dir + '/' + i for i in os.listdir(object_track_file_dir)]
-    raw_map_feature_data_path = base_dir + map_file_names[map_file_name] + '/maps/' + map_file_name + '.osm_xy'
+    converted_map_feature_data = load_map_features(map_feature_data_path, map_file_name, args.skip_maps)
+    converted_dynamic_map_states = dict()
+    base_metadata = interaction_metadata(map_file_name)
 
-    max_number = max([int(f[-6: -4]) for f in raw_object_track_data_paths])
-    for idx in range(max_number + 1):
-        if idx < 10:
-            pattern = f'00{idx}'
-        else:
-            pattern = f'0{idx}'
-        filtered_raw_object_track_data_paths = [f for f in raw_object_track_data_paths if re.search(pattern, f)]
+    for scenario_idx in range(scenario_num):
+        scenario_start_frame = scenario_idx * scenario_length + 1
+        raw_object_track_data_part = raw_object_track_data[
+            (raw_object_track_data['frame_id'] >= scenario_start_frame) &
+            (raw_object_track_data['frame_id'] < scenario_start_frame + scenario_length)]
+        if raw_object_track_data_part.empty:
+            continue
 
-        raw_object_track_data = pd.concat([pd.read_csv(f) for f in filtered_raw_object_track_data_paths])
-        scenario_num = raw_object_track_data['frame_id'].max() // scenario_length
+        converted_object_track_data = extract_object_tracks(raw_object_track_data_part, scenario_start_frame, scenario_length)
 
-        scenario = dict()
-        for scenario_idx in range(scenario_num):
+        scenario_id = f'{map_file_name}_{recording_id}_{scenario_idx}'
+        extra_information = dict(base_metadata)
+        extra_information['id'] = scenario_id
+        extra_information['sdc_id'] = None
+        extra_information['scene_length'] = scenario_length
+        extra_information['sampling_rate'] = 10
+        extra_information['timestamp'] = np.array(range(scenario_length)) / 10
+        extra_information['init_time'] = (scenario_start_frame - 1) / 10
 
-            raw_object_track_data_part = raw_object_track_data[
-                (raw_object_track_data['frame_id'] < scenario_idx * scenario_length + scenario_duration * 10 + 1) &
-                (raw_object_track_data['frame_id'] >= scenario_idx * scenario_length + 1)]
-
-            converted_object_track_data = extract_object_tracks(raw_object_track_data_part, scenario_idx, scenario_length)
-
-            raw_map_feature_data = ET.parse(raw_map_feature_data_path).getroot()
-
-            polys = {}
-            for node in raw_map_feature_data.findall('node'):
-                node_id = node.attrib['id']
-                node_x, node_y = (node.attrib['x'], node.attrib['y'])
-                polys[node_id] = (node_x, node_y)
-
-            converted_map_feature_data = extract_map_features(raw_map_feature_data, polys, map_file_name)
-
-            converted_dynamic_map_states = dict()
-
-            extra_information = dict()
-            extra_information['id'] = str(idx) + '_' + str(scenario_idx) + '_' + map_file_name
-            extra_information['dataset'] = 'INTERACTION'
-
-            if map_file_name == 'DR_CHN_Merging_ZS' or map_file_name == 'DR_CHN_Roundabout_LN':
-                extra_information['version'] = '1.1'
-                extra_information['country'] = 'CHINA'
-            elif map_file_name == 'DR_DEU_Merging_MT' or map_file_name == 'DR_DEU_Roundabout_OF':
-                extra_information['version'] = '1.1'
-                extra_information['country'] = 'GERMANY'
-            elif map_file_name == 'DR_USA_Intersection_EP0' or map_file_name == 'DR_USA_Intersection_EP1' or \
-                 map_file_name == 'DR_USA_Intersection_GL' or map_file_name == 'DR_USA_Intersection_MA' or \
-                 map_file_name == 'DR_USA_Roundabout_EP' or map_file_name == 'DR_USA_Roundabout_FT' or \
-                 map_file_name == 'DR_USA_Roundabout_SR':
-                extra_information['version'] = '1.1'
-                extra_information['country'] = 'AMERICA'
-            elif map_file_name == 'TC_BGR_Intersection_VA':
-                extra_information['version'] = '1.0'
-                extra_information['country'] = 'BULGARIA'
-            else:
-                raise ValueError("Unknown country name: {}".format(map_file_name[3:6]))
-
-            extra_information['city'] = None
-            extra_information['location'] = None
-            extra_information['sdc_id'] = None
-            extra_information['scene_length'] = scenario_length
-            extra_information['sampling_rate'] = 10
-            extra_information['timestamp'] = np.array(range(scenario_length)) / 10
-
-            scenario['object_tracks'] = converted_object_track_data
-            scenario['map_features'] = converted_map_feature_data
-            scenario['dynamic_map_states'] = converted_dynamic_map_states
-            scenario['extra_information'] = extra_information
-
-            save_scenario_pickle(scenario, args, extra_information['id'])
+        scenario = {
+            'object_tracks': converted_object_track_data,
+            'map_features': converted_map_feature_data,
+            'dynamic_map_states': converted_dynamic_map_states,
+            'extra_information': extra_information,
+        }
+        save_scenario_pickle(scenario, args, scenario_id)
 
 
 def convert(args):
-    map_names = list(map_file_names.keys())
-    params = [(args, map_file_name) for map_file_name in map_names]
-    run_tasks(process_scenario, params, len(map_names), args, tqdm)
+    recordings = discover_recordings(args)
+    if not recordings:
+        raise FileNotFoundError(f'Cannot find INTERACTION track files under {args.raw_dataset_path}.')
+    run_tasks(process_recording, recordings, len(recordings), args, tqdm)
 
 
 def main(argv=None):

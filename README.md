@@ -150,6 +150,20 @@ python src/convertor.py \
   --max_files 1
 ```
 
+INTERACTION 小规模试跑:
+
+```bash
+python src/convertor.py \
+  --dataset interaction \
+  --raw_dataset_path raw_dataset/INTERACTION \
+  --converted_dataset_path converted-dataset \
+  --num_workers 1 \
+  -- \
+  --locations DR_CHN_Merging_ZS \
+  --max_files 1 \
+  --max_scenarios_per_file 1
+```
+
 V2X-Seq mini 小规模试跑:
 
 ```bash
@@ -468,6 +482,39 @@ python src/convertor.py \
   --max_scenarios 1
 ```
 
+## INTERACTION 说明
+
+INTERACTION 转换器直接读取 `recorded_trackfiles/*_tracks_*.csv` 和 `maps/*.osm_xy`，不需要额外官方 SDK。输出目录统一为 `interaction`，每个 recording 会按 20 秒切片输出。
+
+目录通常应类似：
+
+```text
+raw_dataset/INTERACTION/
+├── INTERACTION-Dataset-DR-v1_1/
+│   ├── maps/
+│   │   ├── DR_CHN_Merging_ZS.osm_xy
+│   │   └── ...
+│   └── recorded_trackfiles/
+│       ├── DR_CHN_Merging_ZS/
+│       │   ├── vehicle_tracks_000.csv
+│       │   └── ...
+│       └── ...
+└── INTERACTION-Dataset-TC-v1_0/
+    ├── maps/
+    └── recorded_trackfiles/
+```
+
+常用 INTERACTION 专属参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--locations` | 选择 `all` 或一个/多个 location，例如 `DR_CHN_Merging_ZS`。 |
+| `--max_files` | 最多转换多少个 recording，适合试跑。 |
+| `--max_scenarios_per_file` | 每个 recording 最多转换多少个 20 秒场景。 |
+| `--skip_maps` | 跳过 OSM 地图，只验证轨迹转换。 |
+
+输出文件名使用 `[location]_[recording_id]_[scenario_idx].pkl`，例如 `DR_CHN_Merging_ZS_000_0.pkl`，并且文件名与 `extra_information.id` 保持一致。没有任何轨迹的 20 秒空窗口会被跳过。
+
 ## leveLXData / exiD 说明
 
 leveLXData 转换器直接读取各子数据集的 `*_recordingMeta.csv`、`*_tracks.csv`、`*_tracksMeta.csv` 三件套，并解析 lanelet OSM 地图，不依赖额外官方 SDK。exiD 已兼容官方长目录名和本项目当前的短目录名 `exiD-v2.1`。
@@ -540,6 +587,7 @@ raw_dataset/V2X-Seq/
 - Windows: Waymo Open 可尝试 TensorFlow 2.10.x 原生环境；nuPlan 默认直接解析后端不依赖 Linux-only 的 devkit 运行链路。
 - Argoverse 1 使用 CSV/XML 直接解析，不依赖官方 `argoverse` SDK。
 - Argoverse 2 使用 parquet/JSON 直接解析，不依赖官方 `av2` SDK；parquet 读取依赖跨平台 wheel `pyarrow`。
+- INTERACTION 使用 CSV 和 OSM XML 直接解析，不依赖额外官方 SDK。
 - nuPlan 地图解析依赖 `pyogrio/geopandas`，本质上依赖 GDAL 相关二进制包；优先使用 conda 或官方 wheel，遇到安装问题时可先用 `--skip_maps` 验证轨迹读取。
 - Shifts 使用内置 protobuf 解码 `.pb` 文件，不依赖官方完整 `ysdc_dataset_api` 运行环境。
 - Lyft Level 5 使用直接 zarr/protobuf 后端，不依赖完整 `l5kit`。如果原始数据缺少 `meta.json`，会跳过地图但保留轨迹转换。
