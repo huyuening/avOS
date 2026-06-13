@@ -10,6 +10,8 @@
 #   nuplan-devkit, Hydra, or Torch.
 # - Argoverse 2 uses direct parquet/JSON parsing and does not require av2.
 # - Lyft Level 5 uses direct zarr/protobuf parsing and does not require l5kit.
+# - Scenario visualization uses matplotlib for rendering and OpenCV for video
+#   encoding.
 # - Dataset-specific SDKs are not included here because their platform and
 #   Python-version constraints vary.
 
@@ -18,6 +20,8 @@ tensorflow-macos==2.10.0; platform_system == "Darwin" and platform_machine == "a
 protobuf==3.19.6
 numpy>=1.21,<1.24
 pandas>=1.5,<3
+matplotlib>=3.7,<4
+opencv-python>=4.8,<4.11
 pyarrow>=12,<16
 scipy>=1.7,<1.11
 shapely>=2,<3

@@ -1,8 +1,10 @@
 # avOS Scenario Convertor
 
-`avOS` 提供一个统一入口，将多个自动驾驶场景数据集转换为与 `waymo-open-convertor` 一致的 pickle 场景格式。
+`avOS` 提供一个统一入口，将多个自动驾驶场景数据集转换为与 `waymo-open-convertor` 一致的 pickle 场景格式，并提供统一的视频可视化入口。
 
 统一入口是 `src/convertor.py`。`src/scenario_convertor/` 下的各数据集转换器是内部实现，不应直接运行。
+
+视频可视化入口是 `src/visualizer.py`。`src/scenario_visualizer/` 下的可视化模块是内部实现，不应直接运行。
 
 ## 支持的数据集
 
@@ -22,7 +24,7 @@
 
 ### 1. 创建环境
 
-推荐使用 Python 3.10。当前 `requirements.txt` 是通用基础依赖，覆盖 Waymo Open、Argoverse 2 直接 parquet/json 后端、nuPlan 直接解析后端、Lyft Level 5 直接 zarr/protobuf 后端以及 CSV/XML/地图基础解析依赖，不包含 `waymo-open-dataset-tf-*`、`av2` 或 `l5kit` 官方包。
+推荐使用 Python 3.10。当前 `requirements.txt` 是通用基础依赖，覆盖 Waymo Open、Argoverse 2 直接 parquet/json 后端、nuPlan 直接解析后端、Lyft Level 5 直接 zarr/protobuf 后端、CSV/XML/地图基础解析依赖以及视频可视化依赖，不包含 `waymo-open-dataset-tf-*`、`av2` 或 `l5kit` 官方包。
 
 ```bash
 conda create -n avos python=3.10 -y
@@ -42,6 +44,7 @@ pip install -r requirements.txt
 
 ```bash
 python src/convertor.py --help
+python src/visualizer.py --help
 ```
 
 ### 3. 转换 Waymo Open
@@ -64,6 +67,22 @@ python src/convertor.py \
 
 ```text
 [scenario_id].pkl
+```
+
+### 4. 可视化场景视频
+
+```bash
+python src/visualizer.py \
+  --converted_dataset_path converted-dataset \
+  --dataset lyft-level-5 \
+  --scenario_ids s_15 \
+  --result_path video-dataset
+```
+
+视频会写入：
+
+```text
+video-dataset/lyft-level-5/s_15.mp4
 ```
 
 ## 命令行参数
@@ -315,24 +334,62 @@ python src/convertor.py \
 }
 ```
 
-## 内部转换器不能直接运行
+## 场景视频可视化
+
+统一入口：
+
+```bash
+python src/visualizer.py [options]
+```
+
+常用参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--converted_dataset_path` | 转换后的数据根目录，默认 `converted-dataset`。 |
+| `--dataset` | 要可视化的数据集输出子目录，例如 `waymo-open`、`interaction`、`levelxdata`。 |
+| `--scenario_ids` | 指定一个或多个场景 id。不传时默认扫描该数据集目录下的全部 `.pkl`。 |
+| `--result_path` | 视频输出根目录，默认 `video-dataset`。 |
+| `--num_workers` | 并行渲染场景数。 |
+| `--max_scenarios` | 最多渲染多少个场景，适合试跑。 |
+| `--max_frames` | 每个场景最多渲染多少帧，适合试跑。 |
+| `--frame_stride` | 每隔多少帧渲染一帧。大于 1 时会按比例降低默认 FPS，保持视频时长接近真实时间。 |
+| `--history_frames` | 显示多少帧历史轨迹，设为 `0` 最快。 |
+| `--dpi` | 渲染清晰度，默认 `120`。更高清会更慢。 |
+| `--no_labels` | 不绘制车辆 id 和速度文字，速度更快。 |
+
+当前可视化流程已经去掉旧版的逐帧 PNG 落盘和二次读图拼视频，改为直接从 Matplotlib canvas 写入 OpenCV `VideoWriter`。静态地图每个场景只绘制一次，轨迹状态也会预先整理，通常明显快于旧脚本。
+
+快速试跑：
+
+```bash
+python src/visualizer.py \
+  --converted_dataset_path converted-dataset \
+  --dataset lyft-level-5 \
+  --scenario_ids s_15 \
+  --result_path video-dataset \
+  --max_frames 10 \
+  --history_frames 2 \
+  --dpi 80 \
+  --no_labels
+```
+
+## 内部模块不能直接运行
 
 请不要直接运行：
 
 ```bash
 python src/scenario_convertor/waymo-open-convertor.py
+python src/scenario_visualizer/scenario_visualization.py
 ```
 
-内部转换器会拒绝直接运行，并提示：
-
-```text
-Dataset converters are internal. Use the src/convertor.py entrypoint.
-```
+内部转换器和可视化模块会拒绝直接运行，并提示统一入口。
 
 请统一使用：
 
 ```bash
 python src/convertor.py --dataset waymo-open
+python src/visualizer.py --dataset waymo-open --scenario_ids SCENARIO_ID
 ```
 
 ## Waymo Open 说明
@@ -628,21 +685,25 @@ python src/convertor.py --dataset waymo-open argoverse-1 v2x-seq --continue_on_e
 ```text
 .
 ├── src/
-│   ├── convertor.py                 # 唯一公开入口
-│   └── scenario_convertor/
-│       ├── internal.py              # 内部运行守卫
-│       ├── utils.py                 # 公共格式、保存、并行工具
-│       ├── waymo-open-convertor.py
-│       ├── argoverse-1-convertor.py
-│       ├── argoverse-2-convertor.py
-│       ├── interaction-convertor.py
-│       ├── levelxdata-convertor.py
-│       ├── lyft-level-5-convertor.py
-│       ├── lyft_proto/              # Lyft 地图 protobuf 定义
-│       ├── nuplan-convertor.py
-│       ├── shifts-convertor.py
-│       ├── shifts_proto/            # Shifts 场景 protobuf 定义
-│       └── v2x-seq-convertor.py
+│   ├── convertor.py                 # 统一转换入口
+│   ├── visualizer.py                # 统一可视化入口
+│   ├── scenario_convertor/
+│   │   ├── internal.py              # 内部运行守卫
+│   │   ├── utils.py                 # 公共格式、保存、并行工具
+│   │   ├── waymo-open-convertor.py
+│   │   ├── argoverse-1-convertor.py
+│   │   ├── argoverse-2-convertor.py
+│   │   ├── interaction-convertor.py
+│   │   ├── levelxdata-convertor.py
+│   │   ├── lyft-level-5-convertor.py
+│   │   ├── lyft_proto/              # Lyft 地图 protobuf 定义
+│   │   ├── nuplan-convertor.py
+│   │   ├── shifts-convertor.py
+│   │   ├── shifts_proto/            # Shifts 场景 protobuf 定义
+│   │   └── v2x-seq-convertor.py
+│   └── scenario_visualizer/
+│       ├── scenario_visualization.py
+│       └── utils.py
 ├── requirements.txt                 # 通用基础依赖
 └── README.md
 ```
