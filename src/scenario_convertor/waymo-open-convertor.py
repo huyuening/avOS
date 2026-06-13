@@ -2,8 +2,8 @@
 #   For v1.3.0 and higher
 
 # Installation
-#   pip install waymo-open-dataset-tf-2-6-0 (if CentOS) [numpy==1.19.2]
-#   pip install shapely
+#   pip install -r requirements.txt
+#   Waymo Scenario protobuf is loaded from scenario_convertor.womd_proto.
 
 try:
     from scenario_convertor.internal import ensure_internal_converter_run, run_converter_main

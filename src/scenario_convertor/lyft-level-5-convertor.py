@@ -17,7 +17,7 @@
 # 1) conda create -n Xdata python=3.8
 # 2) conda activate Xdata
 # 3) pip install l5kit -i https://pypi.tuna.tsinghua.edu.cn/simple
-# 4) pip install protobuf==3.20.0 -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 4) pip install protobuf==3.19.6 -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 try:
     from scenario_convertor.internal import ensure_internal_converter_run, run_converter_main

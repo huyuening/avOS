@@ -1,19 +1,24 @@
-# Waymo Open converter environment.
-# This project uses local WOMD protobuf files:
-#   from scenario_convertor.womd_proto.pb2.scenario_pb2 import Scenario
-# Do not install waymo-open-dataset-tf-* unless you explicitly switch back to
-# Waymo's official Python package.
+# Cross-platform base environment for avOS scenario converters.
 #
 # Notes:
+# - Waymo Open uses local WOMD protobuf files and does not require
+#   waymo-open-dataset-tf-*.
 # - TensorFlow is still required for tf.data.TFRecordDataset.
 # - TensorFlow 2.10.x is the last native-Windows TensorFlow line.
-# - The vendored protobuf files use the older generated-code API, so keep
-#   protobuf below 4.
+# - TensorFlow 2.10.x requires protobuf below 3.20.
+# - nuPlan uses the direct SQLite/GPKG backend and does not require
+#   nuplan-devkit, Hydra, or Torch.
+# - Dataset-specific SDKs such as av2, l5kit, and ysdc_dataset_api are not
+#   included here because their platform and Python-version constraints vary.
 
 tensorflow==2.10.1; platform_system != "Darwin" or platform_machine != "arm64"
 tensorflow-macos==2.10.0; platform_system == "Darwin" and platform_machine == "arm64"
-protobuf>=3.20.3,<4
+protobuf==3.19.6
 numpy>=1.21,<1.24
+pandas>=1.5,<3
 scipy>=1.7,<1.11
 shapely>=1.8,<2
+pyproj>=3.4,<4
+geopandas>=0.14,<1
+pyogrio>=0.7,<1
 tqdm>=4.64,<5

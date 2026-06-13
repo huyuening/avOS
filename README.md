@@ -2,7 +2,7 @@
 
 `avOS` 提供一个统一入口，将多个自动驾驶场景数据集转换为与 `waymo-open-convertor` 一致的 pickle 场景格式。
 
-统一入口是仓库根目录的 `convertor.py`。`scenario_convertor/` 下的各数据集转换器是内部实现，不应直接运行。
+统一入口是 `src/convertor.py`。`src/scenario_convertor/` 下的各数据集转换器是内部实现，不应直接运行。
 
 ## 支持的数据集
 
@@ -22,7 +22,7 @@
 
 ### 1. 创建环境
 
-Waymo Open 转换器推荐使用 Python 3.8 到 3.10。当前 `requirements.txt` 是 Waymo Open 转换器的最小依赖，不包含 `waymo-open-dataset-tf-*` 官方包。
+推荐使用 Python 3.10。当前 `requirements.txt` 是通用基础依赖，覆盖 Waymo Open、nuPlan 直接解析后端以及 CSV/XML/地图基础解析依赖，不包含 `waymo-open-dataset-tf-*` 官方包。
 
 ```bash
 conda create -n avos python=3.10 -y
@@ -41,13 +41,13 @@ pip install -r requirements.txt
 ### 2. 检查入口
 
 ```bash
-python convertor.py --help
+python src/convertor.py --help
 ```
 
 ### 3. 转换 Waymo Open
 
 ```bash
-python convertor.py \
+python src/convertor.py \
   --dataset waymo-open \
   --raw_dataset_path /path/to/waymo-open-motion-dataset-v1.3.0 \
   --converted_dataset_path /path/to/converted-dataset \
@@ -63,7 +63,7 @@ python convertor.py \
 ## 命令行参数
 
 ```bash
-python convertor.py [options]
+python src/convertor.py [options]
 ```
 
 常用参数：
@@ -82,11 +82,11 @@ python convertor.py [options]
 示例：
 
 ```bash
-python convertor.py --dataset waymo-open --dry_run
+python src/convertor.py --dataset waymo-open --dry_run
 ```
 
 ```bash
-python convertor.py \
+python src/convertor.py \
   --dataset waymo-open \
   --raw_dataset_path /data/waymo \
   --converted_dataset_path /data/converted \
@@ -102,19 +102,48 @@ python convertor.py \
 Lyft train split:
 
 ```bash
-python convertor.py --dataset lyft-level-5 -- --split train
+python src/convertor.py --dataset lyft-level-5 -- --split train
 ```
 
 nuPlan mini/trainval/test split:
 
 ```bash
-python convertor.py --dataset nuplan -- --split mini
+python src/convertor.py --dataset nuplan -- --split mini
+```
+
+nuPlan 小规模试跑:
+
+```bash
+python src/convertor.py \
+  --dataset nuplan \
+  --raw_dataset_path /path/to/nuplan-motion-dataset-v1.1 \
+  --converted_dataset_path /path/to/converted-dataset \
+  --num_workers 1 \
+  -- \
+  --split mini \
+  --max_files 1 \
+  --max_scenarios_per_file 1
+```
+
+如果只想先验证 `.db` 轨迹读取，不读取 `map.gpkg`：
+
+```bash
+python src/convertor.py \
+  --dataset nuplan \
+  --raw_dataset_path /path/to/nuplan-motion-dataset-v1.1 \
+  --converted_dataset_path /path/to/converted-dataset \
+  --num_workers 1 \
+  -- \
+  --split mini \
+  --max_files 1 \
+  --max_scenarios_per_file 1 \
+  --skip_maps
 ```
 
 Lyft 自定义 l5kit 配置：
 
 ```bash
-python convertor.py \
+python src/convertor.py \
   --dataset lyft-level-5 \
   --raw_dataset_path /data/lyft-level-5-motion-dataset \
   -- \
@@ -212,19 +241,19 @@ python convertor.py \
 请不要直接运行：
 
 ```bash
-python scenario_convertor/waymo-open-convertor.py
+python src/scenario_convertor/waymo-open-convertor.py
 ```
 
 内部转换器会拒绝直接运行，并提示：
 
 ```text
-Dataset converters are internal. Use the top-level convertor.py entrypoint.
+Dataset converters are internal. Use the src/convertor.py entrypoint.
 ```
 
 请统一使用：
 
 ```bash
-python convertor.py --dataset waymo-open
+python src/convertor.py --dataset waymo-open
 ```
 
 ## Waymo Open 说明
@@ -243,11 +272,45 @@ tf.data.TFRecordDataset(...)
 
 来读取 Waymo TFRecord 文件。
 
+在 macOS Apple Silicon 上，`requirements.txt` 会安装 `tensorflow-macos==2.10.0`。该版本要求 `protobuf < 3.20`，因此本项目固定使用 `protobuf==3.19.6`。
+
+## nuPlan 说明
+
+nuPlan 转换器默认使用直接解析后端：通过 Python 标准库 `sqlite3` 读取 `.db` 轨迹文件，通过 `pyogrio/geopandas` 读取 `map.gpkg` 地图文件。它不依赖 `nuplan-devkit`、Hydra 或 Torch，因此比官方 devkit 路线更容易在 Windows、macOS 和 Linux 上运行。相关依赖已经合并在唯一的 `requirements.txt` 中。
+
+nuPlan 目录通常应类似：
+
+```text
+/path/to/nuplan-motion-dataset-v1.1/
+└── nuplan/
+    └── dataset/
+        ├── nuplan-v1.1/
+        │   └── splits/
+        │       ├── mini/
+        │       ├── trainval/
+        │       └── test/
+        └── maps/
+```
+
+常用 nuPlan 专属参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--split` | 选择 `mini`、`trainval` 或 `test`。 |
+| `--scenario_duration_s` | 直接解析时的场景窗口长度，默认 `20.0` 秒。 |
+| `--scenario_stride_s` | 场景窗口步长，默认 `20.0` 秒。 |
+| `--sample_interval` | 每隔多少个 `lidar_pc` 帧采样一次，默认 `2`，通常约等于从 20 Hz 降到 10 Hz。 |
+| `--map_radius` | 以 ego 中心查询地图元素的半径，默认 `150` 米。 |
+| `--max_files` | 最多转换多少个 `.db` 文件，适合试跑。 |
+| `--max_scenarios_per_file` | 每个 `.db` 最多转换多少个窗口，适合试跑。 |
+| `--skip_maps` | 跳过 `map.gpkg`，只验证轨迹转换。 |
+
 ## 跨平台建议
 
 - Linux: 最推荐，重依赖数据集更容易配置。
 - macOS: 轻量数据集通常可用，TensorFlow 依赖可能需要按 CPU 架构处理。
-- Windows: Waymo Open 可尝试 TensorFlow 2.10.x 原生环境；复杂数据集建议 WSL2 或 Docker。
+- Windows: Waymo Open 可尝试 TensorFlow 2.10.x 原生环境；nuPlan 默认直接解析后端不依赖 Linux-only 的 devkit 运行链路。
+- nuPlan 地图解析依赖 `pyogrio/geopandas`，本质上依赖 GDAL 相关二进制包；优先使用 conda 或官方 wheel，遇到安装问题时可先用 `--skip_maps` 验证轨迹读取。
 - 调试时先使用 `--num_workers 1`，确认单进程可运行后再提高并行数。
 
 ## 常见问题
@@ -263,37 +326,39 @@ tf.data.TFRecordDataset(...)
 ### 如何只看将要执行的命令？
 
 ```bash
-python convertor.py --dataset all --dry_run
+python src/convertor.py --dataset all --dry_run
 ```
 
 ### 如何转换多个数据集？
 
 ```bash
-python convertor.py --dataset waymo-open argoverse-1 v2x-seq --converted_dataset_path /data/converted
+python src/convertor.py --dataset waymo-open argoverse-1 v2x-seq --converted_dataset_path /data/converted
 ```
 
 如果希望其中一个失败后继续运行：
 
 ```bash
-python convertor.py --dataset waymo-open argoverse-1 v2x-seq --continue_on_error
+python src/convertor.py --dataset waymo-open argoverse-1 v2x-seq --continue_on_error
 ```
 
 ## 代码结构
 
 ```text
 .
-├── convertor.py                     # 唯一公开入口
-├── requirements.txt                 # Waymo Open 转换器依赖
-└── scenario_convertor/
-    ├── internal.py                  # 内部运行守卫
-    ├── utils.py                     # 公共格式、保存、并行工具
-    ├── waymo-open-convertor.py
-    ├── argoverse-1-convertor.py
-    ├── argoverse-2-convertor.py
-    ├── interaction-convertor.py
-    ├── levelxdata-convertor.py
-    ├── lyft-level-5-convertor.py
-    ├── nuplan-convertor.py
-    ├── shifts-convertor.py
-    └── v2x-seq-convertor.py
+├── src/
+│   ├── convertor.py                 # 唯一公开入口
+│   └── scenario_convertor/
+│       ├── internal.py              # 内部运行守卫
+│       ├── utils.py                 # 公共格式、保存、并行工具
+│       ├── waymo-open-convertor.py
+│       ├── argoverse-1-convertor.py
+│       ├── argoverse-2-convertor.py
+│       ├── interaction-convertor.py
+│       ├── levelxdata-convertor.py
+│       ├── lyft-level-5-convertor.py
+│       ├── nuplan-convertor.py
+│       ├── shifts-convertor.py
+│       └── v2x-seq-convertor.py
+├── requirements.txt                 # 通用基础依赖
+└── README.md
 ```

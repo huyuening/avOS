@@ -4,6 +4,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+SRC_DIR = Path(__file__).resolve().parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 from scenario_convertor.internal import INTERNAL_RUN_ENV
 
 
@@ -24,7 +28,7 @@ CONVERTERS = {
 
 
 def converter_dir() -> Path:
-    return Path(__file__).resolve().parent / "scenario_convertor"
+    return SRC_DIR / "scenario_convertor"
 
 
 def build_arg_parser():
@@ -143,6 +147,19 @@ def build_command(args, script_path):
     return command
 
 
+def build_subprocess_env():
+    env = os.environ.copy()
+    env[INTERNAL_RUN_ENV] = "1"
+
+    pythonpath = env.get("PYTHONPATH")
+    if pythonpath:
+        env["PYTHONPATH"] = f"{SRC_DIR}{os.pathsep}{pythonpath}"
+    else:
+        env["PYTHONPATH"] = str(SRC_DIR)
+
+    return env
+
+
 def run_converter(dataset, args):
     script_path = converter_dir() / CONVERTERS[dataset]
     command = build_command(args, script_path)
@@ -151,9 +168,7 @@ def run_converter(dataset, args):
     if args.dry_run:
         return 0
 
-    env = os.environ.copy()
-    env[INTERNAL_RUN_ENV] = "1"
-    return subprocess.run(command, cwd=Path(__file__).resolve().parent, env=env).returncode
+    return subprocess.run(command, env=build_subprocess_env()).returncode
 
 
 def run_converters(args):

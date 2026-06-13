@@ -4,7 +4,7 @@
 #   git clone https://github.com/Shifts-Project/shifts
 #   cd shifts/sdc
 #   pip install .
-#   pip install protobuf==3.20.3
+#   pip install protobuf==3.19.6
 
 try:
     from scenario_convertor.internal import ensure_internal_converter_run, run_converter_main
