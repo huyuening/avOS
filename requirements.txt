@@ -8,8 +8,8 @@
 # - TensorFlow 2.10.x requires protobuf below 3.20.
 # - nuPlan uses the direct SQLite/GPKG backend and does not require
 #   nuplan-devkit, Hydra, or Torch.
-# - Dataset-specific SDKs such as av2, l5kit, and ysdc_dataset_api are not
-#   included here because their platform and Python-version constraints vary.
+# - Dataset-specific SDKs such as av2 and l5kit are not included here because
+#   their platform and Python-version constraints vary.
 
 tensorflow==2.10.1; platform_system != "Darwin" or platform_machine != "arm64"
 tensorflow-macos==2.10.0; platform_system == "Darwin" and platform_machine == "arm64"

@@ -317,12 +317,41 @@ nuPlan 目录通常应类似：
 
 nuPlan 输出文件的 `[scenario_id]` 使用场景起始 `lidar_pc` token，与 nuPlan devkit 中 `scenario.token` 的含义保持一致。
 
+## Shifts 说明
+
+Shifts 转换器直接读取 `.pb` 场景文件，所需 protobuf 定义已经内置在 `src/scenario_convertor/shifts_proto/`。因此转换 Shifts 不需要完整安装官方 `ysdc_dataset_api` 包。
+
+官方 `ysdc_dataset_api` 的完整安装会引入 Torch、TensorFlow、W&B、Transformers、OpenCV 等训练/可视化依赖，跨平台和版本约束更重；本项目只保留转换所需的 protobuf 解码能力。
+
+Shifts 目录可以是官方的 `train/development/evaluation` 结构，也可以是小样本结构，例如：
+
+```text
+raw_dataset/Shifts/
+└── mini/
+    └── 000/
+        ├── 000000.pb
+        └── ...
+```
+
+小规模试跑：
+
+```bash
+python src/convertor.py \
+  --dataset shifts \
+  --raw_dataset_path raw_dataset/Shifts \
+  --converted_dataset_path converted-dataset \
+  --num_workers 1 \
+  -- \
+  --max_files 1
+```
+
 ## 跨平台建议
 
 - Linux: 最推荐，重依赖数据集更容易配置。
 - macOS: 轻量数据集通常可用，TensorFlow 依赖可能需要按 CPU 架构处理。
 - Windows: Waymo Open 可尝试 TensorFlow 2.10.x 原生环境；nuPlan 默认直接解析后端不依赖 Linux-only 的 devkit 运行链路。
 - nuPlan 地图解析依赖 `pyogrio/geopandas`，本质上依赖 GDAL 相关二进制包；优先使用 conda 或官方 wheel，遇到安装问题时可先用 `--skip_maps` 验证轨迹读取。
+- Shifts 使用内置 protobuf 解码 `.pb` 文件，不依赖官方完整 `ysdc_dataset_api` 运行环境。
 - 调试时先使用 `--num_workers 1`，确认单进程可运行后再提高并行数。
 
 ## 常见问题
@@ -370,6 +399,7 @@ python src/convertor.py --dataset waymo-open argoverse-1 v2x-seq --continue_on_e
 │       ├── lyft-level-5-convertor.py
 │       ├── nuplan-convertor.py
 │       ├── shifts-convertor.py
+│       ├── shifts_proto/            # Shifts 场景 protobuf 定义
 │       └── v2x-seq-convertor.py
 ├── requirements.txt                 # 通用基础依赖
 └── README.md

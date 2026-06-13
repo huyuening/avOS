@@ -1,10 +1,6 @@
 # Shifts Motion Prediction Dataset
 
-# Installation
-#   git clone https://github.com/Shifts-Project/shifts
-#   cd shifts/sdc
-#   pip install .
-#   pip install protobuf==3.19.6
+# Shifts protobuf definitions are vendored in scenario_convertor.shifts_proto.
 
 try:
     from scenario_convertor.internal import ensure_internal_converter_run, run_converter_main
@@ -14,30 +10,64 @@ except ModuleNotFoundError:
 ensure_internal_converter_run()
 
 import argparse
-import os
+from pathlib import Path
 import numpy as np
 
 from tqdm import tqdm
 from utils import add_common_converter_args, object_state_template, global_to_local_velocity, run_tasks, save_scenario_pickle
-from ysdc_dataset_api.utils import get_file_paths, read_scene_from_file
+
+try:
+    from scenario_convertor.shifts_proto import Scene
+except ModuleNotFoundError:
+    from shifts_proto import Scene
 
 
 def build_arg_parser():
     parser = argparse.ArgumentParser(description='Shifts Motion Prediction Dataset Converter')
-    return add_common_converter_args(
+    add_common_converter_args(
         parser,
         default_raw_dataset_path='/dataset/x-scene/autonomous-vehicle-dataset/autonomous-vehicle-motion-dataset/shifts-motion-dataset',
         default_subset_name='shifts',
         default_raw_dataset_version='1.0',
         raw_dataset_help='The file directory for Shifts',
     )
+    parser.add_argument(
+        '--max_files',
+        default=None,
+        type=int,
+        help='Convert at most this many Shifts protobuf files.',
+    )
+    return parser
+
+
+def get_file_paths(dataset_path: str):
+    root = Path(dataset_path)
+    if not root.exists():
+        return []
+    return sorted(str(path) for path in root.rglob('*.pb'))
+
+
+def read_scene_from_file(filepath: str):
+    scene = Scene()
+    with open(filepath, 'rb') as file:
+        scene.ParseFromString(file.read())
+    return scene
 
 
 def list_filepaths(raw_dataset_path):
-    train_set_path = os.path.join(raw_dataset_path, 'train')
-    val_set_path = os.path.join(raw_dataset_path, 'development')
-    test_set_path = os.path.join(raw_dataset_path, 'evaluation')
-    return get_file_paths(train_set_path) + get_file_paths(val_set_path) + get_file_paths(test_set_path)
+    root = Path(raw_dataset_path)
+    split_dirs = [
+        root / 'train',
+        root / 'development',
+        root / 'evaluation',
+        root / 'mini',
+    ]
+    existing_split_dirs = [path for path in split_dirs if path.exists()]
+    search_dirs = existing_split_dirs or [root]
+    filepaths = []
+    for search_dir in search_dirs:
+        filepaths.extend(get_file_paths(str(search_dir)))
+    return sorted(filepaths)
 
 
 def get_country_name(city_name_):
@@ -236,6 +266,8 @@ def process_scenario(params):
 
 def convert(args):
     filepaths = list_filepaths(args.raw_dataset_path)
+    if args.max_files is not None:
+        filepaths = filepaths[:args.max_files]
     params = [(args, filepath) for filepath in filepaths]
     run_tasks(process_scenario, params, len(filepaths), args, tqdm)
 
