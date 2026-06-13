@@ -22,7 +22,7 @@
 
 ### 1. 创建环境
 
-推荐使用 Python 3.10。当前 `requirements.txt` 是通用基础依赖，覆盖 Waymo Open、nuPlan 直接解析后端、Lyft Level 5 直接 zarr/protobuf 后端以及 CSV/XML/地图基础解析依赖，不包含 `waymo-open-dataset-tf-*` 或 `l5kit` 官方包。
+推荐使用 Python 3.10。当前 `requirements.txt` 是通用基础依赖，覆盖 Waymo Open、Argoverse 2 直接 parquet/json 后端、nuPlan 直接解析后端、Lyft Level 5 直接 zarr/protobuf 后端以及 CSV/XML/地图基础解析依赖，不包含 `waymo-open-dataset-tf-*`、`av2` 或 `l5kit` 官方包。
 
 ```bash
 conda create -n avos python=3.10 -y
@@ -130,6 +130,19 @@ Argoverse 1 mini 小规模试跑:
 python src/convertor.py \
   --dataset argoverse-1 \
   --raw_dataset_path "raw_dataset/Argoverse 1" \
+  --converted_dataset_path converted-dataset \
+  --num_workers 1 \
+  -- \
+  --split mini \
+  --max_files 1
+```
+
+Argoverse 2 mini 小规模试跑:
+
+```bash
+python src/convertor.py \
+  --dataset argoverse-2 \
+  --raw_dataset_path raw_dataset/Argoverse2 \
   --converted_dataset_path converted-dataset \
   --num_workers 1 \
   -- \
@@ -318,6 +331,22 @@ raw_dataset/Argoverse 1/
 
 也支持官方常见的 `train/data`、`val/data` 和 `test_obs/data` 结构。默认 `--split auto` 会按已有目录自动发现；输出文件名会带 split 前缀，例如 mini 输出为 `m_10.pkl`。
 
+## Argoverse 2 说明
+
+Argoverse 2 转换器直接读取 motion forecasting parquet 和 `log_map_archive_*.json`，不需要安装官方 `av2` SDK。parquet 读取依赖 `pyarrow`，已经合并进唯一的 `requirements.txt`。
+
+目录通常应类似：
+
+```text
+raw_dataset/Argoverse2/
+└── mini/
+    └── 00a0a3e0-1508-45f2-9cf5-e427e1446a33/
+        ├── scenario_00a0a3e0-1508-45f2-9cf5-e427e1446a33.parquet
+        └── log_map_archive_00a0a3e0-1508-45f2-9cf5-e427e1446a33.json
+```
+
+也支持官方常见的 `train`、`val`、`validation` 和 `test` 结构。默认 `--split auto` 会按已有目录自动发现；输出文件名使用 AV2 原始 UUID，例如 `00a0a3e0-1508-45f2-9cf5-e427e1446a33.pkl`。如果只想验证轨迹读取，可以加 `--skip_maps` 跳过地图 JSON。
+
 ## nuPlan 说明
 
 nuPlan 转换器默认使用直接解析后端：通过 Python 标准库 `sqlite3` 读取 `.db` 轨迹文件，通过 `pyogrio/geopandas` 读取 `map.gpkg` 地图文件。它不依赖 `nuplan-devkit`、Hydra 或 Torch，因此比官方 devkit 路线更容易在 Windows、macOS 和 Linux 上运行。相关依赖已经合并在唯一的 `requirements.txt` 中。
@@ -418,6 +447,7 @@ python src/convertor.py \
 - macOS: 轻量数据集通常可用，TensorFlow 依赖可能需要按 CPU 架构处理。
 - Windows: Waymo Open 可尝试 TensorFlow 2.10.x 原生环境；nuPlan 默认直接解析后端不依赖 Linux-only 的 devkit 运行链路。
 - Argoverse 1 使用 CSV/XML 直接解析，不依赖官方 `argoverse` SDK。
+- Argoverse 2 使用 parquet/JSON 直接解析，不依赖官方 `av2` SDK；parquet 读取依赖跨平台 wheel `pyarrow`。
 - nuPlan 地图解析依赖 `pyogrio/geopandas`，本质上依赖 GDAL 相关二进制包；优先使用 conda 或官方 wheel，遇到安装问题时可先用 `--skip_maps` 验证轨迹读取。
 - Shifts 使用内置 protobuf 解码 `.pb` 文件，不依赖官方完整 `ysdc_dataset_api` 运行环境。
 - Lyft Level 5 使用直接 zarr/protobuf 后端，不依赖完整 `l5kit`。如果原始数据缺少 `meta.json`，会跳过地图但保留轨迹转换。

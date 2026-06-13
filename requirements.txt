@@ -8,15 +8,17 @@
 # - TensorFlow 2.10.x requires protobuf below 3.20.
 # - nuPlan uses the direct SQLite/GPKG backend and does not require
 #   nuplan-devkit, Hydra, or Torch.
+# - Argoverse 2 uses direct parquet/JSON parsing and does not require av2.
 # - Lyft Level 5 uses direct zarr/protobuf parsing and does not require l5kit.
-# - Dataset-specific SDKs such as av2 are not included here because their
-#   platform and Python-version constraints vary.
+# - Dataset-specific SDKs are not included here because their platform and
+#   Python-version constraints vary.
 
 tensorflow==2.10.1; platform_system != "Darwin" or platform_machine != "arm64"
 tensorflow-macos==2.10.0; platform_system == "Darwin" and platform_machine == "arm64"
 protobuf==3.19.6
 numpy>=1.21,<1.24
 pandas>=1.5,<3
+pyarrow>=12,<16
 scipy>=1.7,<1.11
 shapely>=2,<3
 pyproj>=3.4,<4
