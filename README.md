@@ -78,14 +78,14 @@ python src/convertor.py \
 python src/reconstructor.py \
   --dataset waymo-open \
   --converted_dataset_path /path/to/converted-dataset \
-  --reconstructed_dataset_path /path/to/reconstructed-dataset \
+  --reconstructed_dataset_path /path/to/reconstructed_dataset \
   --num_workers 8
 ```
 
 重构后的文件会写入：
 
 ```text
-/path/to/reconstructed-dataset/waymo-open/*.pkl
+/path/to/reconstructed_dataset/waymo-open/*.pkl
 ```
 
 ### 5. 可视化场景视频
@@ -361,7 +361,7 @@ python src/convertor.py \
 python src/reconstructor.py [options]
 ```
 
-重构器输入 `converted-dataset/<dataset>/*.pkl`，输出 `reconstructed-dataset/<dataset>/*.pkl`。它只处理一个已转换数据集，保持原始 Waymo-style 字典结构和 `[scenario_id].pkl` 文件名，主要重建 object track 的 `global_center`、`local_velocity`、`local_acceleration`、`heading`、`size` 和 `valid`。
+重构器输入 `converted-dataset/<dataset>/*.pkl`，默认输出 `reconstructed_dataset/<dataset>/*.pkl`。它只处理一个已转换数据集，保持原始 Waymo-style 字典结构和 `[scenario_id].pkl` 文件名，主要重建 object track 的 `global_center`、`local_velocity`、`local_acceleration`、`heading`、`size` 和 `valid`。
 
 常用参数：
 
@@ -369,7 +369,7 @@ python src/reconstructor.py [options]
 | --- | --- |
 | `--dataset` | 要重构的数据集子目录，例如 `waymo-open`、`lyft-level-5`、`nuplan`。 |
 | `--converted_dataset_path` | 转换后的数据根目录。 |
-| `--reconstructed_dataset_path` | 重构输出根目录。 |
+| `--reconstructed_dataset_path` | 重构输出根目录，默认 `reconstructed_dataset`。 |
 | `--scenario_ids` | 指定一个或多个场景 id。不传时扫描该数据集目录下的全部 `.pkl`。 |
 | `--num_workers` | 并行重构场景数。 |
 | `--max_files` | 最多重构多少个场景，适合试跑。 |
@@ -385,7 +385,6 @@ python src/reconstructor.py [options]
 python src/reconstructor.py \
   --dataset lyft-level-5 \
   --converted_dataset_path converted-dataset \
-  --reconstructed_dataset_path reconstructed-dataset \
   --scenario_ids s_15 \
   --num_workers 1
 ```
@@ -394,7 +393,7 @@ python src/reconstructor.py \
 
 ```bash
 python src/visualizer.py \
-  --converted_dataset_path reconstructed-dataset \
+  --converted_dataset_path reconstructed_dataset \
   --dataset lyft-level-5 \
   --scenario_ids s_15 \
   --result_path video-dataset

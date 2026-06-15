@@ -20,7 +20,7 @@ from scenario_reconstructor.object_track_reconstruction import (
 
 
 DEFAULT_CONVERTED_DATASET_PATH = "/dataset/x-scene/converted-dataset"
-DEFAULT_RECONSTRUCTED_DATASET_PATH = "/dataset/x-scene/reconstructed-dataset"
+DEFAULT_RECONSTRUCTED_DATASET_PATH = "reconstructed_dataset"
 
 
 @dataclass(frozen=True)
@@ -44,7 +44,8 @@ class ScenarioStats:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Reconstruct one converted scenario dataset in the unified avOS pickle format."
+        description="Reconstruct one converted scenario dataset in the unified avOS pickle format.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--dataset",
