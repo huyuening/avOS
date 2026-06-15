@@ -358,20 +358,24 @@ python src/convertor.py \
 统一入口：
 
 ```bash
-python src/reconstructor.py [options]
+python src/reconstructor.py \
+  --dataset DATASET_NAME \
+  --converted_dataset_path converted-dataset \
+  --reconstructed_dataset_path reconstructed_dataset \
+  --num_workers 8
 ```
 
-重构器输入 `converted-dataset/<dataset>/*.pkl`，默认输出 `reconstructed_dataset/<dataset>/*.pkl`。它只处理一个已转换数据集，保持原始 Waymo-style 字典结构和 `[scenario_id].pkl` 文件名，主要重建 object track 的 `global_center`、`local_velocity`、`local_acceleration`、`heading`、`size` 和 `valid`。
+重构器输入 `converted-dataset/<dataset>/*.pkl`，推荐输出到 `reconstructed_dataset/<dataset>/*.pkl`。运行时请显式传入 `--dataset`、`--converted_dataset_path`、`--reconstructed_dataset_path reconstructed_dataset` 和 `--num_workers 8`。它只处理一个已转换数据集，保持原始 Waymo-style 字典结构和 `[scenario_id].pkl` 文件名，主要重建 object track 的 `global_center`、`local_velocity`、`local_acceleration`、`heading`、`size` 和 `valid`。
 
-常用参数：
+参数说明：
 
 | 参数 | 说明 |
 | --- | --- |
-| `--dataset` | 要重构的数据集子目录，例如 `waymo-open`、`lyft-level-5`、`nuplan`。 |
-| `--converted_dataset_path` | 转换后的数据根目录。 |
-| `--reconstructed_dataset_path` | 重构输出根目录，默认 `reconstructed_dataset`。 |
+| `--dataset` | 必填。要重构的数据集子目录，例如 `waymo-open`、`lyft-level-5`、`nuplan`。 |
+| `--converted_dataset_path` | 必填。转换后的数据根目录。 |
+| `--reconstructed_dataset_path` | 必填。重构输出根目录，推荐使用 `reconstructed_dataset`。 |
 | `--scenario_ids` | 指定一个或多个场景 id。不传时扫描该数据集目录下的全部 `.pkl`。 |
-| `--num_workers` | 并行重构场景数。 |
+| `--num_workers` | 必填。并行重构场景数，推荐 `8`。 |
 | `--max_files` | 最多重构多少个场景，适合试跑。 |
 | `--cutoff_freq` | 覆盖默认滤波截止频率。默认按数据集选择。 |
 | `--min_valid_frames` | 单条 object track 至少需要多少有效帧才重构。 |
@@ -385,8 +389,9 @@ python src/reconstructor.py [options]
 python src/reconstructor.py \
   --dataset lyft-level-5 \
   --converted_dataset_path converted-dataset \
+  --reconstructed_dataset_path reconstructed_dataset \
   --scenario_ids s_15 \
-  --num_workers 1
+  --num_workers 8
 ```
 
 重构后可直接可视化输出目录：
@@ -467,7 +472,7 @@ python src/scenario_visualizer/scenario_visualization.py
 
 ```bash
 python src/convertor.py --dataset waymo-open
-python src/reconstructor.py --dataset waymo-open
+python src/reconstructor.py --dataset waymo-open --converted_dataset_path converted-dataset --reconstructed_dataset_path reconstructed_dataset --num_workers 8
 python src/visualizer.py --dataset waymo-open --scenario_ids SCENARIO_ID
 ```
 

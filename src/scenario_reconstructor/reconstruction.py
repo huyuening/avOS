@@ -19,8 +19,7 @@ from scenario_reconstructor.object_track_reconstruction import (
 )
 
 
-DEFAULT_CONVERTED_DATASET_PATH = "/dataset/x-scene/converted-dataset"
-DEFAULT_RECONSTRUCTED_DATASET_PATH = "reconstructed_dataset"
+RECOMMENDED_RECONSTRUCTED_DATASET_PATH = "reconstructed_dataset"
 
 
 @dataclass(frozen=True)
@@ -45,7 +44,6 @@ class ScenarioStats:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Reconstruct one converted scenario dataset in the unified avOS pickle format.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--dataset",
@@ -56,13 +54,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--converted_dataset_path",
-        default=DEFAULT_CONVERTED_DATASET_PATH,
+        required=True,
         help="Root directory containing converted dataset subdirectories.",
     )
     parser.add_argument(
         "--reconstructed_dataset_path",
-        default=DEFAULT_RECONSTRUCTED_DATASET_PATH,
-        help="Root directory for reconstructed dataset output.",
+        required=True,
+        help=f"Root directory for reconstructed dataset output. Recommended: {RECOMMENDED_RECONSTRUCTED_DATASET_PATH}.",
     )
     parser.add_argument(
         "--scenario_ids",
@@ -79,8 +77,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--num_workers",
         type=int,
-        default=1,
-        help="Number of worker processes. Use 1 for easier debugging.",
+        required=True,
+        help="Number of worker processes. Recommended: 8. Use 1 for easier debugging.",
     )
     parser.add_argument(
         "--cutoff_freq",
