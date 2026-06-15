@@ -1,10 +1,12 @@
 # avOS Scenario Convertor
 
-`avOS` 提供一个统一入口，将多个自动驾驶场景数据集转换为与 `waymo-open-convertor` 一致的 pickle 场景格式，并提供统一的视频可视化入口。
+`avOS` 提供统一入口，将多个自动驾驶场景数据集转换为与 `waymo-open-convertor` 一致的 pickle 场景格式，并提供轨迹重构和视频可视化入口。
 
 统一入口是 `src/convertor.py`。`src/scenario_convertor/` 下的各数据集转换器是内部实现，不应直接运行。
 
 视频可视化入口是 `src/visualizer.py`。`src/scenario_visualizer/` 下的可视化模块是内部实现，不应直接运行。
+
+场景重构入口是 `src/reconstructor.py`。`src/scenario_reconstructor/` 下的重构模块是内部实现，不应直接运行。
 
 ## 支持的数据集
 
@@ -44,6 +46,7 @@ pip install -r requirements.txt
 
 ```bash
 python src/convertor.py --help
+python src/reconstructor.py --help
 python src/visualizer.py --help
 ```
 
@@ -69,7 +72,23 @@ python src/convertor.py \
 [scenario_id].pkl
 ```
 
-### 4. 可视化场景视频
+### 4. 重构单个转换后数据集
+
+```bash
+python src/reconstructor.py \
+  --dataset waymo-open \
+  --converted_dataset_path /path/to/converted-dataset \
+  --reconstructed_dataset_path /path/to/reconstructed-dataset \
+  --num_workers 8
+```
+
+重构后的文件会写入：
+
+```text
+/path/to/reconstructed-dataset/waymo-open/*.pkl
+```
+
+### 5. 可视化场景视频
 
 ```bash
 python src/visualizer.py \
@@ -334,6 +353,53 @@ python src/convertor.py \
 }
 ```
 
+## 场景轨迹重构
+
+统一入口：
+
+```bash
+python src/reconstructor.py [options]
+```
+
+重构器输入 `converted-dataset/<dataset>/*.pkl`，输出 `reconstructed-dataset/<dataset>/*.pkl`。它只处理一个已转换数据集，保持原始 Waymo-style 字典结构和 `[scenario_id].pkl` 文件名，主要重建 object track 的 `global_center`、`local_velocity`、`local_acceleration`、`heading`、`size` 和 `valid`。
+
+常用参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--dataset` | 要重构的数据集子目录，例如 `waymo-open`、`lyft-level-5`、`nuplan`。 |
+| `--converted_dataset_path` | 转换后的数据根目录。 |
+| `--reconstructed_dataset_path` | 重构输出根目录。 |
+| `--scenario_ids` | 指定一个或多个场景 id。不传时扫描该数据集目录下的全部 `.pkl`。 |
+| `--num_workers` | 并行重构场景数。 |
+| `--max_files` | 最多重构多少个场景，适合试跑。 |
+| `--cutoff_freq` | 覆盖默认滤波截止频率。默认按数据集选择。 |
+| `--min_valid_frames` | 单条 object track 至少需要多少有效帧才重构。 |
+| `--max_speed_mps` | 修复插值后超过该速度阈值的跳点，设为 `0` 可关闭。 |
+| `--skip_existing` | 输出文件已存在时跳过。 |
+| `--dry_run` | 只打印将要处理的文件。 |
+
+快速试跑：
+
+```bash
+python src/reconstructor.py \
+  --dataset lyft-level-5 \
+  --converted_dataset_path converted-dataset \
+  --reconstructed_dataset_path reconstructed-dataset \
+  --scenario_ids s_15 \
+  --num_workers 1
+```
+
+重构后可直接可视化输出目录：
+
+```bash
+python src/visualizer.py \
+  --converted_dataset_path reconstructed-dataset \
+  --dataset lyft-level-5 \
+  --scenario_ids s_15 \
+  --result_path video-dataset
+```
+
 ## 场景视频可视化
 
 统一入口：
@@ -392,15 +458,17 @@ python src/visualizer.py \
 
 ```bash
 python src/scenario_convertor/waymo-open-convertor.py
+python src/scenario_reconstructor/reconstruction.py
 python src/scenario_visualizer/scenario_visualization.py
 ```
 
-内部转换器和可视化模块会拒绝直接运行，并提示统一入口。
+内部转换器、重构器和可视化模块会拒绝直接运行，并提示统一入口。
 
 请统一使用：
 
 ```bash
 python src/convertor.py --dataset waymo-open
+python src/reconstructor.py --dataset waymo-open
 python src/visualizer.py --dataset waymo-open --scenario_ids SCENARIO_ID
 ```
 
@@ -698,6 +766,7 @@ python src/convertor.py --dataset waymo-open argoverse-1 v2x-seq --continue_on_e
 .
 ├── src/
 │   ├── convertor.py                 # 统一转换入口
+│   ├── reconstructor.py             # 统一重构入口
 │   ├── visualizer.py                # 统一可视化入口
 │   ├── scenario_convertor/
 │   │   ├── internal.py              # 内部运行守卫
@@ -713,6 +782,9 @@ python src/convertor.py --dataset waymo-open argoverse-1 v2x-seq --continue_on_e
 │   │   ├── shifts-convertor.py
 │   │   ├── shifts_proto/            # Shifts 场景 protobuf 定义
 │   │   └── v2x-seq-convertor.py
+│   ├── scenario_reconstructor/
+│   │   ├── reconstruction.py        # 单数据集重构流程
+│   │   └── object_track_reconstruction.py
 │   └── scenario_visualizer/
 │       ├── scenario_visualization.py
 │       └── utils.py
