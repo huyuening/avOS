@@ -321,4 +321,4 @@ def _normalize_angle(angle: np.ndarray) -> np.ndarray:
 
 
 if __name__ == "__main__":
-    raise SystemExit("Scenario reconstructor modules are internal. Use src/reconstructor.py.")
+    raise SystemExit("Scenario reconstructor modules are internal. Use scripts/reconstruct.py.")

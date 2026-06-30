@@ -12,6 +12,7 @@
 # - Lyft Level 5 uses direct zarr/protobuf parsing and does not require l5kit.
 # - Scenario visualization uses matplotlib for rendering and OpenCV for video
 #   encoding.
+# - Scenario generation imports the minimal inference path from Demand2Scenario.
 # - Dataset-specific SDKs are not included here because their platform and
 #   Python-version constraints vary.
 
@@ -32,3 +33,10 @@ tqdm>=4.64,<5
 zarr==2.17.2
 numcodecs==0.13.1
 pymap3d>=3.0,<4
+PyYAML>=6,<7
+torch>=2.1,<3
+casadi>=3.6,<4
+Pillow>=10,<12
+openai>=1,<3
+anthropic>=0.40,<1
+google-genai>=1,<2

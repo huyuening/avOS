@@ -4,9 +4,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-SRC_DIR = Path(__file__).resolve().parent
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+AVOS_DIR = PROJECT_ROOT / "avos"
+if str(AVOS_DIR) not in sys.path:
+    sys.path.insert(0, str(AVOS_DIR))
 
 from scenario_convertor.internal import INTERNAL_RUN_ENV
 
@@ -28,7 +29,7 @@ CONVERTERS = {
 
 
 def converter_dir() -> Path:
-    return SRC_DIR / "scenario_convertor"
+    return AVOS_DIR / "scenario_convertor"
 
 
 def build_arg_parser():
@@ -153,9 +154,9 @@ def build_subprocess_env():
 
     pythonpath = env.get("PYTHONPATH")
     if pythonpath:
-        env["PYTHONPATH"] = f"{SRC_DIR}{os.pathsep}{pythonpath}"
+        env["PYTHONPATH"] = f"{AVOS_DIR}{os.pathsep}{pythonpath}"
     else:
-        env["PYTHONPATH"] = str(SRC_DIR)
+        env["PYTHONPATH"] = str(AVOS_DIR)
 
     return env
 

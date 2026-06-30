@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 if __name__ == "__main__" and __package__ in {None, ""}:
-    raise SystemExit("Scenario reconstructor modules are internal. Use src/reconstructor.py.")
+    raise SystemExit("Scenario reconstructor modules are internal. Use scripts/reconstruct.py.")
 
 import numpy as np
 from tqdm import tqdm
@@ -274,4 +274,4 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit("Scenario reconstructor modules are internal. Use src/reconstructor.py.")
+    raise SystemExit("Scenario reconstructor modules are internal. Use scripts/reconstruct.py.")

@@ -13,7 +13,12 @@ env/
 raw_dataset/
 converted_dataset/
 converted-dataset/
+reconstructed_dataset/
+video-dataset/
 outputs/
 output/
+tmp/
+
+README_LOCAL.md
 
 *.log

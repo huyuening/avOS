@@ -6,7 +6,7 @@ INTERNAL_RUN_ENV = "SCENARIO_CONVERTOR_INTERNAL"
 
 def ensure_internal_converter_run():
     if os.environ.get(INTERNAL_RUN_ENV) != "1":
-        raise SystemExit("Dataset converters are internal. Use the src/convertor.py entrypoint.")
+        raise SystemExit("Dataset converters are internal. Use scripts/convert.py.")
 
 
 def run_converter_main(build_arg_parser, convert, argv=None):

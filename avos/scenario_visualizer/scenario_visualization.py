@@ -117,4 +117,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit("Scenario visualizer modules are internal. Use src/visualizer.py.")
+    raise SystemExit("Scenario visualizer modules are internal. Use scripts/visualize.py.")
