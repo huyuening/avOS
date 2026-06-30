@@ -6,12 +6,6 @@ import importlib
 DEFAULT_RECONSTRUCTOR = "motion_reconstructor_v2"
 
 RECONSTRUCTOR_ALIASES = {
-    "1": "motion_reconstructor_v1",
-    "v1": "motion_reconstructor_v1",
-    "old": "motion_reconstructor_v1",
-    "original": "motion_reconstructor_v1",
-    "motion_reconstructor": "motion_reconstructor_v1",
-    "motion_reconstructor_v1": "motion_reconstructor_v1",
     "2": "motion_reconstructor_v2",
     "v2": "motion_reconstructor_v2",
     "new": "motion_reconstructor_v2",

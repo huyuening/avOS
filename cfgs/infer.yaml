@@ -1,0 +1,33 @@
+CONFIG_PATH: cfgs/train.yaml
+WEIGHT_PATH: data/checkpoint/generator.pth
+SUBSET_NAME: waymo-open
+DEVICE: null
+SEED: null
+RECONSTRUCTOR: motion_reconstructor_v2
+
+DATA:
+  MAP_CODE_PATH: data/inference_data/map_codes
+  OPTIMIZED_PATH: converted-dataset
+
+OUTPUT:
+  SCENARIO_PATH: generated_dataset
+
+NORMAL:
+  ROAD_TYPE: null
+  DENSITY_TYPE: null
+  MAX_DENSITY_CANDIDATES: 20
+
+CRITICAL:
+  PROMPT_DIR: data/inference_data/prompt/critical_scenario
+  SYSTEM_PROMPT_PATH: data/inference_data/prompt/mllm/mllm.prompt
+  PROMPT_NAME: A.6.12
+  NUM_GENERATIONS: 1
+  INTERPRETER_MODELS: GPT
+
+MLLM:
+  GEMINI_BASE_URL: https://llm-api.mmchat.xyz/gemini
+  CLAUDE_BASE_URL: https://llm-api.mmchat.xyz
+  OPENAI_BASE_URL: https://llm-api.mmchat.xyz/v1
+  GEMINI_MODEL: gemini-3.1-pro-preview
+  CLAUDE_MODEL: claude-opus-4-6
+  GPT_MODEL: gpt-5.4

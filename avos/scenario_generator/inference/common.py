@@ -9,17 +9,31 @@ import yaml
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from config_paths import require_optimized_path
+from config_paths import require_optimized_path, require_trainval_path
 from processor.dataset import CustomDataset
-from inference.defaults import dataset_path
+from inference.defaults import dataset_path, resolve_project_path
 from generator.model import ScenarioGenerator
 from reconstructor.utils import update_vel_acc_jerk
 from generator.utils import fc_collate_fn, format_labels, process_scene, rotate
 
 
+def normalize_config_paths(config):
+    dataset = config.get("DATASET")
+    if isinstance(dataset, dict):
+        for key in ("OPTIMIZED_PATH", "PATH", "TRAINVAL_PATH", "PROCESSED_PATH"):
+            if dataset.get(key):
+                dataset[key] = resolve_project_path(dataset[key])
+
+    datalist = config.get("DATALIST")
+    if isinstance(datalist, dict) and datalist.get("PATH"):
+        datalist["PATH"] = resolve_project_path(datalist["PATH"])
+
+    return config
+
+
 def load_config(config_path):
     with open(config_path, "r", encoding="utf-8") as file:
-        return yaml.safe_load(file)
+        return normalize_config_paths(yaml.safe_load(file) or {})
 
 
 def resolve_device(device=None):
@@ -62,6 +76,24 @@ def make_dataloader(config, mode="val", batch_size=1, shuffle=True, data_list=No
         num_workers=0,
         pin_memory=torch.cuda.is_available(),
     )
+
+
+def require_cached_samples(config, file_names):
+    trainval_path = require_trainval_path(config)
+    missing = [
+        file_name
+        for file_name in file_names
+        if not os.path.exists(os.path.join(trainval_path, os.path.splitext(file_name)[0] + ".pt"))
+    ]
+    if missing:
+        sample = ", ".join(missing[:5])
+        suffix = "" if len(missing) <= 5 else f", ... ({len(missing)} total)"
+        raise FileNotFoundError(
+            "Missing generator trainval cache under "
+            f"{trainval_path}: {sample}{suffix}. "
+            "Please prepare the Demand2Scenario inference cache before generation."
+        )
+    return trainval_path
 
 
 def batch_to_device(batch, device):

@@ -1,6 +1,5 @@
 import argparse
 import casadi as ca
-import matplotlib.pyplot as plt
 import multiprocessing
 import numpy as np
 import os
@@ -250,7 +249,8 @@ def fill_nan_for_calc(arr):
 
 
 def plot_six_graphs(t_seg, raw_data, opt_data, object_id, t_range, agent_type):
-    """Standalone 6-panel comparison visualization function"""
+    import matplotlib.pyplot as plt
+
     x_raw, y_raw, h_raw, v_lon_raw, v_lat_raw, a_lon_raw, a_lat_raw = raw_data
     x_opt, y_opt, h_opt, v_lon_opt, v_lat_opt, a_lon_opt, a_lat_opt = opt_data
     t_min, t_max = t_range

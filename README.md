@@ -7,6 +7,8 @@ Unified tools for autonomous-driving scenario conversion, reconstruction, genera
 ```text
 avos/                    # Python package and internal modules
 scripts/                 # Public command-line entrypoints
+cfgs/                    # Scenario generator configs
+data/                    # Generator inference assets
 requirements.txt
 ```
 
@@ -47,6 +49,8 @@ Generate scenarios:
 python scripts/generate.py normal -- --help
 python scripts/generate.py critical -- --help
 ```
+
+The generator includes its default config, prompts, and map-code assets. Put the external model weight at `data/checkpoint/generator.pth`; it still expects converted scenarios under `converted-dataset/<dataset>` and prepared generator cache under `datasets/trainval_dataset/<dataset>`.
 
 Visualize a scenario:
 

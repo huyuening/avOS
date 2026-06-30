@@ -14,6 +14,7 @@ from inference.common import (
     load_model,
     make_dataloader,
     reconstruct_generated_scenario,
+    require_cached_samples,
     resolve_device,
     save_scenario,
 )
@@ -25,7 +26,6 @@ from inference.defaults import (
     default_weight_path,
     load_infer_config,
 )
-from processor.trainval_cache import ensure_trainval_cache
 
 
 DENSITY_LABELS = {
@@ -67,17 +67,6 @@ def build_parser():
                         default=config_value(infer_config, "SUBSET_NAME", default="waymo-open"))
     parser.add_argument("--output-path1", "--output_path1", dest="output_path",
                         default=config_path_value(infer_config, "OUTPUT", "SCENARIO_PATH", default="datasets/generated_dataset"))
-    parser.add_argument("--output-path2", "--output_path2", dest="video_path",
-                        default=config_path_value(infer_config, "OUTPUT", "VIDEO_PATH", default="datasets/visualization_dataset/video"),
-                        help="Root directory for visualization videos.")
-    parser.add_argument("--output-path3", "--output_path3", dest="figure_path",
-                        default=config_path_value(infer_config, "OUTPUT", "FIGURE_PATH", default="datasets/visualization_dataset/image"))
-    parser.add_argument("--output-ext", "--output_ext", dest="output_ext",
-                        default=config_value(infer_config, "OUTPUT", "OUTPUT_EXT", default=".svg"))
-    parser.add_argument("--prompt-name", "--prompt_name", dest="prompt_name",
-                        default=config_value(infer_config, "NORMAL", "PROMPT_NAME", default=""))
-    parser.add_argument("--scenario-radius", "--scenario_radius", dest="scenario_radius", type=int,
-                        default=config_value(infer_config, "NORMAL", "SCENARIO_RADIUS", default=50))
     parser.add_argument("--road-type", type=int, default=config_value(infer_config, "NORMAL", "ROAD_TYPE", default=None),
                         help="1: intersection, 2: intersection approach, 3: road segment.")
     parser.add_argument("--density-type", type=int, default=config_value(infer_config, "NORMAL", "DENSITY_TYPE", default=None),
@@ -92,26 +81,15 @@ def build_parser():
                             "RECONSTRUCTOR",
                             default=config_value(infer_config, "RECONSTRUCTOR", default="motion_reconstructor_v2"),
                         ),
-                        help="Trajectory reconstructor: motion_reconstructor_v1 or motion_reconstructor_v2.")
+                        help="Trajectory reconstructor: motion_reconstructor_v2.")
     parser.add_argument("--device", default=config_value(infer_config, "DEVICE", default=None))
     parser.add_argument("--seed", type=int, default=config_value(infer_config, "SEED", default=None))
-    parser.add_argument("--visualize", action="store_true", default=config_value(infer_config, "NORMAL", "VISUALIZE", default=False),
-                        help="Save a static figure and video-style visualization.")
-    parser.add_argument("--draw-signals", dest="draw_signals", action="store_true",
-                        default=config_value(infer_config, "NORMAL", "DRAW_SIGNALS", default=True),
-                        help="Draw traffic signal states in normal-scenario visualizations.")
-    parser.add_argument("--no-draw-signals", dest="draw_signals", action="store_false",
-                        help="Disable traffic signal drawing in normal-scenario visualizations.")
-    parser.add_argument("--show", action="store_true", default=config_value(infer_config, "NORMAL", "SHOW", default=False),
-                        help="Show the matplotlib window when --visualize is enabled.")
     parser.add_argument("--verbose", action="store_true",
                         default=config_value(infer_config, "NORMAL", "VERBOSE", default=False),
                         help="Print detailed normal inference progress logs.")
     parser.add_argument("--quiet", dest="verbose", action="store_false",
                         help="Suppress detailed normal inference progress logs.")
 
-    # Backward-compatible unused arguments kept so older commands still parse.
-    parser.add_argument("--model_version", default=None)
     return parser
 
 
@@ -227,58 +205,6 @@ def effective_agent_count(source_scenario, config):
     return min(int(np.sum(first_frame_mask)), max_object_num)
 
 
-def save_visualization(scenario, scenario_id, args):
-    import matplotlib.pyplot as plt
-    import pandas as pd
-
-    from visualizer.utils import ScenarioVisualization, scenario_visualization
-
-    log(args, "Saving static visualization...")
-    timestamp = np.arange(50) / 10
-    sdc_id = scenario["extra_information"]["sdc_id"]
-    sv = ScenarioVisualization(ts=timestamp, sdc_id=sdc_id)
-
-    fig, ax = plt.subplots(figsize=(6, 6))
-    fig.patch.set_facecolor("gray")
-    ax.set_facecolor("gray")
-
-    scenario = sv.preprocess(scenario)
-    sv.plot_map_features(scenario, fig, ax, args.figure_path, plot=True, extra_plot=True)
-    if args.draw_signals:
-        sv.plot_dynamic_map_states(ax, scenario, t=0, plot=True)
-    sv.plot_object_tracks_with_future_traj(scenario, ax, sdc_id, num_frame=50, text=False, plot=True)
-
-    ax.axis("off")
-    plt.tight_layout()
-    ax.set_xlim(-args.scenario_radius, args.scenario_radius)
-    ax.set_ylim(-args.scenario_radius, args.scenario_radius)
-
-    output_dir = os.path.join(args.figure_path, args.subset_name)
-    os.makedirs(output_dir, exist_ok=True)
-    suffix = f"-{args.prompt_name}" if args.prompt_name else ""
-    fig_path = os.path.join(output_dir, scenario_id + suffix) + args.output_ext
-    plt.savefig(fig_path)
-    if args.show:
-        plt.show()
-    else:
-        plt.close(fig)
-
-    log(args, "Rendering visualization video...")
-    traffic_events = pd.DataFrame([])
-    video_path = scenario_visualization(
-        scenario,
-        traffic_events,
-        scenario_id,
-        args.video_path,
-        args.subset_name,
-        args.prompt_name,
-        model=None,
-        idx=None,
-        draw_signals=args.draw_signals,
-    )
-    return fig_path, video_path
-
-
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.seed is not None:
@@ -381,11 +307,7 @@ def main(argv=None):
             f"Trying candidate {candidate_index}/{len(candidates)}: "
             f"{scenario_id} (estimated agents={estimated_agents})"
         )
-        config = ensure_trainval_cache(
-            config,
-            file_names=[scenario_id + ".pkl"],
-            verbose=args.verbose,
-        )
+        require_cached_samples(config, [scenario_id + ".pkl"])
         log(args, "Building dataloader...")
         loader = make_dataloader(
             config,
@@ -422,10 +344,6 @@ def main(argv=None):
             f"density={DENSITY_LABELS[density_type]}, agents={num_agents}"
         )
 
-        if args.visualize:
-            fig_path, video_path = save_visualization(scenario, scenario_id, args)
-            print(f"Saved static visualization: {fig_path}")
-            print(f"Saved video visualization: {video_path}")
         return
 
     raise RuntimeError(

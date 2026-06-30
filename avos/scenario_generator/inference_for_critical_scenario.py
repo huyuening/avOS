@@ -1,10 +1,8 @@
 import argparse
 import base64
 import json
-import matplotlib.pyplot as plt
 import numpy as np
 import os
-import pandas as pd
 import pickle
 import random
 import re
@@ -20,6 +18,7 @@ from inference.common import (
     load_model,
     make_dataloader,
     reconstruct_generated_scenario,
+    require_cached_samples,
     resolve_device,
     save_scenario,
 )
@@ -31,7 +30,6 @@ from inference.defaults import (
     default_weight_path,
     load_infer_config,
 )
-from processor.trainval_cache import ensure_trainval_cache
 
 ROAD_TYPE_OPTIONS = {
     0: "other",
@@ -101,11 +99,7 @@ def get_map_code():
     ego_lane_type = input_option("Ego lane type", EGO_LANE_TYPE_OPTIONS)
     global ego_lane_id
     ego_lane_id = input(f"Ego lane ID (from 1 to {num_lanes}): ")
-    # if type(ego_lane_id) != int:
-    #     raise TypeError("Input error. Please enter Arabic numerals (e.g., 2)")
     bike_lane_id = input(f"Bike lane ID (from 1 to {num_lanes} or None): ")
-    # if type(bike_lane_id) != int and bike_lane_id is not None:5
-    #     raise TypeError("Input error. Please enter Arabic numerals (e.g., 3, None)")
     if ego_lane_id == bike_lane_id:
         raise ValueError("Ego lane id cannot be equal to bike lane id")
 
@@ -152,13 +146,23 @@ def load_map_codes(map_code_path, subset_name):
         return pickle.load(file)
 
 
-def save_default_agent_inputs(data, args, scenario_id):
-    output_dir = os.path.join(args.output_path1, args.subset_name, scenario_id)
-    os.makedirs(output_dir, exist_ok=True)
+def agent_input_dir(args, scenario_id):
+    return os.path.join(args.input_path3, args.subset_name, scenario_id)
 
+
+def ensure_llm_image(args, scenario_id):
+    output_dir = agent_input_dir(args, scenario_id)
+    os.makedirs(output_dir, exist_ok=True)
     image_path = os.path.join(output_dir, 'llm_image.png')
     if not os.path.exists(image_path):
         Image.new("RGB", (768, 768), color=(128, 128, 128)).save(image_path)
+    return image_path
+
+
+def save_default_agent_inputs(data, args, scenario_id):
+    output_dir = agent_input_dir(args, scenario_id)
+    os.makedirs(output_dir, exist_ok=True)
+    ensure_llm_image(args, scenario_id)
 
     save_payload = {
         "scenario_id": scenario_id,
@@ -179,6 +183,15 @@ def save_default_agent_inputs(data, args, scenario_id):
     return save_payload["agents"]
 
 
+def load_agent_inputs(args, scenario_id):
+    agent_json = os.path.join(agent_input_dir(args, scenario_id), 'edited_agents.json')
+    if not os.path.exists(agent_json):
+        return None
+    with open(agent_json, 'r', encoding='utf-8') as file:
+        payload = json.load(file)
+    return payload.get('agents')
+
+
 def load_mllm(text_inp, text_inp_, model=None):
     if args.mock_mllm_response:
         return args.mock_mllm_response
@@ -186,7 +199,7 @@ def load_mllm(text_inp, text_inp_, model=None):
         with open(args.mock_mllm_response_path, 'r', encoding='utf-8') as file:
             return file.read()
 
-    image_path = os.path.join(args.output_path1, args.subset_name, selected_scenario_id, 'llm_image.png')
+    image_path = os.path.join(args.input_path3, args.subset_name, selected_scenario_id, 'llm_image.png')
     text_inp_ = json.dumps(text_inp_, ensure_ascii=False, indent=2)
     api_key = args.mllm_api_key or os.getenv("MLLM_API_KEY")
     if not api_key:
@@ -195,12 +208,10 @@ def load_mllm(text_inp, text_inp_, model=None):
     with open(args.system_prompt_path, 'r', encoding='utf-8') as file:
         prompt = file.read()
 
-    # Function to encode the image
     def encode_image(image_path):
         with open(image_path, "rb") as image_file:
             return base64.b64encode(image_file.read()).decode("utf-8")
 
-    # Getting the Base64 string
     image_inp = encode_image(image_path)
 
     if model == 'Gemini':
@@ -218,9 +229,6 @@ def load_mllm(text_inp, text_inp_, model=None):
             model=args.gemini_model,
             config=types.GenerateContentConfig(
                 system_instruction=prompt,
-                # thinking_config=types.ThinkingConfig(
-                #     thinking_level="HIGH"
-                # )
             ),
             contents=[text_inp, text_inp_, image_inp]
         )
@@ -237,10 +245,7 @@ def load_mllm(text_inp, text_inp_, model=None):
 
         message = client.messages.create(
             model=args.claude_model,
-            max_tokens = 2048,
-            # max_tokens=16000,
-            # thinking={"type": "adaptive"},
-            # output_config={"effort": "max"},
+            max_tokens=2048,
             system=prompt,
             messages=[{"role": "user", "content": [
                            {"type": "text", "text": text_inp},
@@ -261,12 +266,11 @@ def load_mllm(text_inp, text_inp_, model=None):
 
         response = client.responses.create(
             model=args.gpt_model,
-            # reasoning={"effort": "xhigh", "summary": "auto"},
             input=[{"role": "system", "content": prompt},
                    {"role": "user", "content": [
                        {"type": "input_text", "text": text_inp},
                        {"type": "input_text", "text": text_inp_},
-                       {"type": "input_image", "image_url": f"data:image/png;base64,{image_inp}", "detail": "low"}   # "detail": "high"
+                       {"type": "input_image", "image_url": f"data:image/png;base64,{image_inp}", "detail": "low"}
                    ]}]
         )
 
@@ -307,16 +311,6 @@ def main(argv=None):
                         default=config_value(infer_config, "CRITICAL", "PROMPT_NAME", default='A.6.12'))
     parser.add_argument('--output-path1', '--output_path1', dest='output_path1', type=str,
                         default=config_path_value(infer_config, "OUTPUT", "SCENARIO_PATH", default="datasets/generated_dataset"))
-    parser.add_argument('--output-path2', '--output_path2', dest='output_path2', type=str,
-                        default=config_path_value(infer_config, "OUTPUT", "VIDEO_PATH", default="datasets/video_dataset"))
-    parser.add_argument('--output-path3', '--output_path3', dest='output_path3', type=str,
-                        default=config_path_value(infer_config, "OUTPUT", "FIGURE_PATH", default="datasets/figure_output"))
-    parser.add_argument('--output-ext', '--output_ext', dest='output_ext', type=str,
-                        default=config_value(infer_config, "OUTPUT", "OUTPUT_EXT", default=".svg"))
-    parser.add_argument('--model-version', '--model_version', dest='model_version', type=str,
-                        default=config_value(infer_config, "CRITICAL", "MODEL_VERSION", default="v3"))
-    parser.add_argument('--scenario-radius', '--scenario_radius', dest='scenario_radius', type=int,
-                        default=config_value(infer_config, "CRITICAL", "SCENARIO_RADIUS", default=50))
     parser.add_argument('--reconstructor', type=str,
                         default=config_value(
                             infer_config,
@@ -324,7 +318,7 @@ def main(argv=None):
                             "RECONSTRUCTOR",
                             default=config_value(infer_config, "RECONSTRUCTOR", default="motion_reconstructor_v2"),
                         ),
-                        help='Trajectory reconstructor: motion_reconstructor_v1 or motion_reconstructor_v2.')
+                        help='Trajectory reconstructor: motion_reconstructor_v2.')
     parser.add_argument('--num-generations', type=int,
                         default=config_value(infer_config, "CRITICAL", "NUM_GENERATIONS", default=1))
     parser.add_argument('--interpreter-models', type=str,
@@ -345,9 +339,6 @@ def main(argv=None):
                         default=config_value(infer_config, "MLLM", "CLAUDE_MODEL", default='claude-opus-4-6'))
     parser.add_argument('--gpt-model', type=str,
                         default=config_value(infer_config, "MLLM", "GPT_MODEL", default='gpt-5.4'))
-    parser.add_argument('--skip-agent-editor', action='store_true',
-                        default=config_value(infer_config, "CRITICAL", "SKIP_AGENT_EDITOR", default=False),
-                        help='Skip the interactive agent editor and write an ego-only edited_agents.json for smoke tests.')
     parser.add_argument('--mock-mllm-response-path', type=str, default=None,
                         help='Read an MLLM response from a local file instead of calling a remote model.')
     parser.add_argument('--mock-mllm-response', type=str, default=None,
@@ -377,18 +368,17 @@ def main(argv=None):
     with open(os.path.join(args.input_path2, args.subset_name, selected_scenario_id+'.pkl'), 'rb') as file:
         data = pickle.load(file)
 
-    if args.skip_agent_editor:
+    agent_init = load_agent_inputs(args, selected_scenario_id)
+    if agent_init is None:
         agent_init = save_default_agent_inputs(data, args, selected_scenario_id)
     else:
-        from visualizer.add_objects import add_obj
-
-        agent_init = add_obj(data, args, selected_scenario_id)
+        ensure_llm_image(args, selected_scenario_id)
     print(agent_init)
 
     config = load_config(args.config_path)
     config.setdefault("DATASET", {})
     set_optimized_path(config, os.path.join(args.input_path2, args.subset_name))
-    config = ensure_trainval_cache(config, file_names=[selected_scenario_id + '.pkl'])
+    require_cached_samples(config, [selected_scenario_id + '.pkl'])
     device = resolve_device(args.device)
     model = load_model(config, args.weight_path, device)
     val_loader = make_dataloader(
@@ -406,7 +396,6 @@ def main(argv=None):
             response_text = load_mllm(scenario_description, agent_init, model=interpreter_model)   # model='Gemini'/'Claude'/'GPT'
             print(f"\n{response_text}\n")
 
-            # object_code_1 = [json.loads(m) for m in re.findall(r"\[[\d,\s]+\]", response_text)]
             pattern = r"-- agent \d+: (\[[\d,\s]+\])"
             matches = re.findall(pattern, response_text)
             object_code_1 = [json.loads(m) for m in matches]
@@ -448,17 +437,6 @@ def main(argv=None):
                 batch['object_code_split'] = torch.tensor(object_code_split_arr, dtype=torch.float64)[None, ...]
                 batch['object_mask'] = torch.tensor(object_mask, dtype=torch.bool)[None, ...]
 
-                # start_idx = 0
-                # # sort objects according to distance
-                # batch['object'][0][~batch['object_mask'][0], :2] = 1e6
-                #
-                # dist = torch.norm(batch['object'][0][start_idx:, :2], dim=1)
-                # sort_idx = torch.argsort(dist)
-                #
-                # batch['object'][0] = batch['object'][0][sort_idx]
-                # batch['object_mask'][0] = batch['object_mask'][0][sort_idx]
-                # batch['object_code'][0] = batch['object_code'][0][sort_idx]
-
                 scene = infer_scenes(config, model, batch, device, add_labels=False)
 
                 with open(os.path.join(args.input_path2, args.subset_name, selected_scenario_id) + '.pkl', 'rb') as file:
@@ -472,61 +450,3 @@ def main(argv=None):
                 output_scenario_id = selected_scenario_id + '-' + interpreter_model + '-' + str(idx)
                 output_file = save_scenario(scenario, args.output_path1, args.subset_name, output_scenario_id)
                 print(f"Generated critical scenario: {output_file}")
-
-                from visualizer.utils import ScenarioVisualization, scenario_visualization
-
-                timestamp = np.arange(50) / 10
-                sdc_id = list(scenario['object_tracks'].keys())[0]
-                sv = ScenarioVisualization(
-                    ts=timestamp,
-                    sdc_id=sdc_id,
-                )
-
-                fig, ax = plt.subplots(figsize=(6, 6))
-                fig.patch.set_facecolor('gray')
-                ax.set_facecolor('gray')
-
-                scenario = sv.preprocess(scenario)
-
-                sv.plot_map_features(
-                    scenario, fig, ax, args.output_path3,
-                    plot=True,
-                    extra_plot=True
-                )
-
-                # sv.plot_dynamic_map_states(
-                #     ax, scenario,
-                #     t=0,
-                #     plot=True,
-                # )
-
-                sv.plot_object_tracks_with_future_traj(
-                    scenario, ax, sdc_id,
-                    num_frame=50,
-                    text=False,
-                    plot=True
-                )
-
-                ax.axis('off')
-                plt.tight_layout()
-                ax.set_xlim(-args.scenario_radius, args.scenario_radius)
-                ax.set_ylim(-args.scenario_radius, args.scenario_radius)
-
-                if not os.path.exists(os.path.join(args.output_path3, args.subset_name)):
-                    os.makedirs(os.path.join(args.output_path3, args.subset_name))
-
-                plt.savefig(os.path.join(args.output_path3, args.subset_name, selected_scenario_id+'-'+args.prompt_name+'-'+interpreter_model+'-'+str(idx)) + args.output_ext)
-                plt.close()
-
-                traffic_events = pd.DataFrame([])
-                video_path = scenario_visualization(
-                    scenario,
-                    traffic_events,
-                    selected_scenario_id,
-                    args.output_path2,
-                    args.subset_name,
-                    args.prompt_name,
-                    interpreter_model,
-                    idx,
-                )
-                print(f"Saved video visualization: {video_path}")

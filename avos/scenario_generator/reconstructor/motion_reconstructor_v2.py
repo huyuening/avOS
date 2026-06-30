@@ -1,8 +1,6 @@
 """Velocity-heading trajectory reconstructor.
 
 This is the default reconstructor used by current preprocessing and inference.
-It wraps the experimental velocity-heading implementation with the same module
-interface as motion_reconstructor_v1.
 """
 
 import argparse

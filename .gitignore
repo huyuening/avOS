@@ -14,11 +14,22 @@ raw_dataset/
 converted_dataset/
 converted-dataset/
 reconstructed_dataset/
+generated_dataset/
 video-dataset/
+datasets/generated_dataset/
+datasets/trainval_dataset/
+datasets/visualization_dataset/
+datasets/video_dataset/
+datasets/figure_output/
 outputs/
 output/
 tmp/
 
 README_LOCAL.md
+
+data/checkpoint/*
+!data/checkpoint/
+!data/checkpoint/README.md
+data/train_data/
 
 *.log
