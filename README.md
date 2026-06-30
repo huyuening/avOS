@@ -50,7 +50,7 @@ python scripts/generate.py normal -- --help
 python scripts/generate.py critical -- --help
 ```
 
-The generator includes its default config, prompts, and map-code assets. Put the external model weight at `data/checkpoint/generator.pth`; it still expects converted scenarios under `converted-dataset/<dataset>` and prepared generator cache under `datasets/trainval_dataset/<dataset>`.
+The generator includes its default config, prompts, and map-code assets. Put the external model weight at `data/checkpoint/generator.pth`; it reads converted scenarios from `converted-dataset/<dataset>` and creates the ignored cache under `datasets/trainval_dataset/<dataset>` on demand.
 
 Visualize a scenario:
 

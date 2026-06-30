@@ -79,12 +79,13 @@ def make_dataloader(config, mode="val", batch_size=1, shuffle=True, data_list=No
 
 
 def require_cached_samples(config, file_names):
+    from processor.cache import ensure_cache_files, missing_cache_files
+
     trainval_path = require_trainval_path(config)
-    missing = [
-        file_name
-        for file_name in file_names
-        if not os.path.exists(os.path.join(trainval_path, os.path.splitext(file_name)[0] + ".pt"))
-    ]
+    missing = missing_cache_files(config, file_names)
+    if missing:
+        ensure_cache_files(config, missing)
+    missing = missing_cache_files(config, file_names)
     if missing:
         sample = ", ".join(missing[:5])
         suffix = "" if len(missing) <= 5 else f", ... ({len(missing)} total)"
@@ -215,9 +216,13 @@ def reconstruct_generated_scenario(
     visualize=False,
     reconstructor_method=None,
 ):
-    from reconstructor.reconstructor_selector import get_object_track_reconstruction
-
-    object_track_reconstruction = get_object_track_reconstruction(reconstructor_method)
+    try:
+        from reconstructor.reconstructor_selector import get_object_track_reconstruction
+        object_track_reconstruction = get_object_track_reconstruction(reconstructor_method)
+    except ModuleNotFoundError as exc:
+        if exc.name != "casadi":
+            raise
+        return recompute_generated_kinematics(scenario)
 
     args = SimpleNamespace(
         show_solver_warnings=show_solver_warnings,
@@ -240,6 +245,24 @@ def reconstruct_generated_scenario(
         if reconstructed_object_state is not None:
             object_track["state"] = reconstructed_object_state
 
+    return scenario
+
+
+def recompute_generated_kinematics(scenario):
+    timestamp = scenario["extra_information"]["timestamp"]
+    for object_track in scenario["object_tracks"].values():
+        state = object_track["state"]
+        center = as_global_center_3d(state["global_center"])
+        heading = state["heading"]
+        vel_x, vel_y, acc_x, acc_y, _, _ = update_vel_acc_jerk(
+            timestamp,
+            center[:, 0],
+            center[:, 1],
+            heading,
+        )
+        state["global_center"] = center
+        state["local_velocity"] = np.column_stack([vel_x, vel_y])
+        state["local_acceleration"] = np.column_stack([acc_x, acc_y])
     return scenario
 
 

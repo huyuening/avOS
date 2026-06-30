@@ -61,5 +61,8 @@ class CustomDataset(Dataset):
         file_name = self.data_list[index].strip()
         processed_file_name = file_name.replace('.pkl', '.pt')
         file_path = os.path.join(self.processed_data_path, processed_file_name)
-        data = torch.load(file_path, weights_only=False)
+        try:
+            data = torch.load(file_path, weights_only=False)
+        except TypeError:
+            data = torch.load(file_path)
         return data
