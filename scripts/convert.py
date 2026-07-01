@@ -47,7 +47,10 @@ def build_arg_parser():
         "--raw_dataset_path",
         default=None,
         type=str,
-        help="Override the raw dataset path. Only valid when one dataset is selected.",
+        help=(
+            "Raw dataset root or dataset-specific path. If <path>/<dataset> "
+            "exists, it is used automatically."
+        ),
     )
     parser.add_argument(
         "--converted_dataset_path",
@@ -110,7 +113,6 @@ def selected_datasets(dataset_args):
 
 def validate_args(args, datasets):
     single_dataset_only = {
-        "--raw_dataset_path": args.raw_dataset_path,
         "--subset_name": args.subset_name,
         "--raw_dataset_version": args.raw_dataset_version,
     }
@@ -122,7 +124,19 @@ def validate_args(args, datasets):
         raise ValueError("Extra converter args can only be forwarded when exactly one dataset is selected.")
 
 
-def build_command(args, script_path):
+def resolve_raw_dataset_path(raw_dataset_path, dataset, multiple_datasets):
+    raw_path = Path(raw_dataset_path)
+    dataset_path = raw_path / dataset
+    if dataset_path.exists():
+        return str(dataset_path)
+    if multiple_datasets:
+        raise FileNotFoundError(
+            f"--raw_dataset_path was used for multiple datasets, but cannot find {dataset_path}."
+        )
+    return str(raw_path)
+
+
+def build_command(args, dataset, script_path, multiple_datasets=False):
     command = [
         args.python,
         str(script_path),
@@ -131,7 +145,12 @@ def build_command(args, script_path):
     ]
 
     if args.raw_dataset_path is not None:
-        command.extend(["--raw_dataset_path", args.raw_dataset_path])
+        command.extend(
+            [
+                "--raw_dataset_path",
+                resolve_raw_dataset_path(args.raw_dataset_path, dataset, multiple_datasets),
+            ]
+        )
     if args.subset_name is not None:
         command.extend(["--subset_name", args.subset_name])
     if args.raw_dataset_version is not None:
@@ -161,9 +180,9 @@ def build_subprocess_env():
     return env
 
 
-def run_converter(dataset, args):
+def run_converter(dataset, args, multiple_datasets=False):
     script_path = converter_dir() / CONVERTERS[dataset]
-    command = build_command(args, script_path)
+    command = build_command(args, dataset, script_path, multiple_datasets=multiple_datasets)
 
     print(f"[scenario_convertor] {dataset}: {' '.join(command)}", flush=True)
     if args.dry_run:
@@ -175,10 +194,11 @@ def run_converter(dataset, args):
 def run_converters(args):
     datasets = selected_datasets(args.dataset)
     validate_args(args, datasets)
+    multiple_datasets = len(datasets) > 1
 
     failures = []
     for dataset in datasets:
-        returncode = run_converter(dataset, args)
+        returncode = run_converter(dataset, args, multiple_datasets=multiple_datasets)
         if returncode != 0:
             failures.append((dataset, returncode))
             if not args.continue_on_error:

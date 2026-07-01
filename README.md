@@ -10,8 +10,7 @@ conda activate avos
 pip install -r requirements.txt
 ```
 
-The requirement file is intended to be cross-platform for Windows, macOS, and
-Linux.
+The requirement file is intended to be cross-platform for Windows, macOS, and Linux.
 
 If you use the generator, place the external checkpoint at:
 
@@ -45,8 +44,9 @@ raw_dataset/
   waymo-open/
 ```
 
-If a raw dataset is stored elsewhere, pass that location with
-`--raw_dataset_path` when running a single converter.
+If the datasets follow this layout, pass `--raw_dataset_path raw_dataset`; the
+converter will automatically use `raw_dataset/<dataset>`. If a single raw
+dataset is stored elsewhere, pass that dataset-specific location instead.
 
 Raw dataset links:
 
@@ -76,7 +76,7 @@ Example for Waymo Open Motion Dataset:
 ```bash
 python scripts/convert.py \
   --dataset waymo-open \
-  --raw_dataset_path raw_dataset/waymo-open \
+  --raw_dataset_path raw_dataset \
   --converted_dataset_path converted-dataset \
   --num_workers 8
 ```
@@ -95,22 +95,18 @@ v2x-seq
 waymo-open
 ```
 
-To convert several local raw dataset folders, run one converter per
-`<dataset>`:
+You can convert several local raw dataset folders with one command:
 
 ```bash
-for dataset in waymo-open nuplan interaction; do
-  python scripts/convert.py \
-    --dataset "$dataset" \
-    --raw_dataset_path "raw_dataset/$dataset" \
-    --converted_dataset_path converted-dataset \
-    --num_workers 8
-done
+python scripts/convert.py \
+  --dataset waymo-open nuplan interaction \
+  --raw_dataset_path raw_dataset \
+  --converted_dataset_path converted-dataset \
+  --num_workers 8
 ```
 
-When `--raw_dataset_path` is provided, select exactly one dataset because each
-dataset has a different raw directory structure. The converted output is the
-canonical input for reconstruction, generation, and visualization.
+The converted output is the canonical input for reconstruction, generation, and
+visualization.
 
 ## 2. Reconstructor
 
