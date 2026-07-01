@@ -28,11 +28,9 @@ export MLLM_API_KEY=your_mllm_or_openai_key
 
 ## Data Preparation
 
-Download the required raw datasets and place them under `raw_dataset/`, or pass
-their actual locations with `--raw_dataset_path` when running a single
-converter.
-
-Recommended local layout:
+Download the required raw datasets and place each dataset under
+`raw_dataset/<dataset>/`. The `<dataset>` folder name should use one of the
+supported names below because the same value is passed to `--dataset`.
 
 ```text
 raw_dataset/
@@ -47,9 +45,12 @@ raw_dataset/
   waymo-open/
 ```
 
+If a raw dataset is stored elsewhere, pass that location with
+`--raw_dataset_path` when running a single converter.
+
 Raw dataset links:
 
-| Dataset | Link |
+| `<dataset>` option and raw main folder name | Link |
 | --- | --- |
 | argoverse-1 | [Argoverse 1](https://www.argoverse.org/av1.html) |
 | argoverse-2 | [Argoverse 2](https://www.argoverse.org/av2.html) |
@@ -61,9 +62,8 @@ Raw dataset links:
 | v2x-seq | [DAIR-V2X](https://github.com/AIR-THU/DAIR-V2X) |
 | waymo-open | [Waymo Open Motion Dataset](https://waymo.com/open/download/#motion-dataset) |
 
-The original L5Kit documentation points to the Woven by Toyota Prediction
-Dataset. If that page is unavailable, use the Kaggle Lyft Motion Prediction data
-page above.
+`--dataset` also accepts `all` to run every converter, but `all` is not a raw
+dataset folder name.
 
 ## 1. Convertor
 
@@ -76,12 +76,12 @@ Example for Waymo Open Motion Dataset:
 ```bash
 python scripts/convert.py \
   --dataset waymo-open \
-  --raw_dataset_path raw_dataset/Waymo \
+  --raw_dataset_path raw_dataset/waymo-open \
   --converted_dataset_path converted-dataset \
   --num_workers 8
 ```
 
-Supported dataset names:
+Supported `<dataset>` options:
 
 ```text
 argoverse-1
@@ -95,13 +95,17 @@ v2x-seq
 waymo-open
 ```
 
-You can convert several datasets with one command:
+To convert several local raw dataset folders, run one converter per
+`<dataset>`:
 
 ```bash
-python scripts/convert.py \
-  --dataset waymo-open nuplan interaction \
-  --converted_dataset_path converted-dataset \
-  --num_workers 8
+for dataset in waymo-open nuplan interaction; do
+  python scripts/convert.py \
+    --dataset "$dataset" \
+    --raw_dataset_path "raw_dataset/$dataset" \
+    --converted_dataset_path converted-dataset \
+    --num_workers 8
+done
 ```
 
 When `--raw_dataset_path` is provided, select exactly one dataset because each
