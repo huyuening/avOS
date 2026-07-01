@@ -18,6 +18,24 @@ If you use the generator, place the external checkpoint at:
 data/checkpoint/generator.pth
 ```
 
+External artifacts for peer review and examples are available on Figshare:
+
+```text
+https://doi.org/10.6084/m9.figshare.32845949
+```
+
+This record contains the scenario generator model weight and a Waymo sample
+dataset. Download the files from the DOI page and place them as follows:
+
+```text
+data/checkpoint/generator.pth
+dataset/converted-dataset/waymo-open/<scenario_id>.pkl
+```
+
+If the downloaded sample dataset is provided as an archive with the repository
+folder structure, extract it from the repository root. Otherwise, create the
+directories manually and move the files into the paths above.
+
 Optional API keys for critical-scenario generation should be provided through
 environment variables:
 
@@ -30,13 +48,13 @@ export MLLM_API_KEY=your_mllm_or_openai_key
 Set common paths in `cfgs/paths.yaml` before running the pipeline:
 
 ```yaml
-RAW_DATASET_PATH: /path_to/raw_dataset
-CONVERTED_DATASET_PATH: /path_to/converted-dataset
-RECONSTRUCTED_DATASET_PATH: /path_to/reconstructed_dataset
-GENERATOR_INPUT_PATH: /path_to/reconstructed_dataset
-GENERATED_DATASET_PATH: /path_to/generated_dataset
-VISUALIZATION_INPUT_PATH: /path_to/generated_dataset
-VIDEO_DATASET_PATH: /path_to/video-dataset
+RAW_DATASET_PATH: dataset/raw_dataset
+CONVERTED_DATASET_PATH: dataset/converted-dataset
+RECONSTRUCTED_DATASET_PATH: dataset/reconstructed_dataset
+GENERATOR_INPUT_PATH: dataset/reconstructed_dataset
+GENERATED_DATASET_PATH: dataset/generated_dataset
+VISUALIZATION_INPUT_PATH: dataset/generated_dataset
+VIDEO_DATASET_PATH: dataset/video-dataset
 NUM_WORKERS: 8
 ```
 
@@ -44,12 +62,12 @@ Relative paths in this file are resolved from the repository root. Use
 `--path_config another_paths.yaml` to run with a different path file.
 
 Download the required raw datasets and place each dataset under
-`raw_dataset/<dataset>/`. The `<dataset>` folder name should use one of the
+`dataset/raw_dataset/<dataset>/`. The `<dataset>` folder name should use one of the
 supported names below because the same value is passed to `--dataset`. If you
 use another raw-data root, update `RAW_DATASET_PATH` in `cfgs/paths.yaml`.
 
 ```text
-raw_dataset/
+dataset/raw_dataset/
   argoverse-1/
   argoverse-2/
   interaction/
@@ -90,7 +108,7 @@ dataset folder name.
 ## 1. Convertor
 
 ```text
-raw_dataset/<dataset>/  ->  converted-dataset/<dataset>/<scenario_id>.pkl
+dataset/raw_dataset/<dataset>/  ->  dataset/converted-dataset/<dataset>/<scenario_id>.pkl
 ```
 
 Example for Waymo Open Motion Dataset:
@@ -127,8 +145,8 @@ visualization.
 ## 2. Reconstructor
 
 ```text
-converted-dataset/<dataset>/<scenario_id>.pkl
-  -> reconstructed_dataset/<dataset>/<scenario_id>.pkl
+dataset/converted-dataset/<dataset>/<scenario_id>.pkl
+  -> dataset/reconstructed_dataset/<dataset>/<scenario_id>.pkl
 ```
 
 Run one reconstructed dataset:
@@ -195,7 +213,7 @@ python scripts/generate.py critical -- \
   --gpt-model your_available_vision_model
 ```
 
-## 4. Visualize Scenarios
+## 4. Visualizer
 
 Visualization reads scenarios from `VISUALIZATION_INPUT_PATH` and writes videos
 to `VIDEO_DATASET_PATH/<dataset>/`.
@@ -210,19 +228,19 @@ python scripts/visualize.py \
 ```
 
 To visualize reconstructed scenarios instead, set
-`VISUALIZATION_INPUT_PATH: reconstructed_dataset` in `cfgs/paths.yaml`, or
+`VISUALIZATION_INPUT_PATH: dataset/reconstructed_dataset` in `cfgs/paths.yaml`, or
 temporarily override the input path:
 
 ```bash
 python scripts/visualize.py \
-  --converted_dataset_path reconstructed_dataset \
+  --dataset_path dataset/reconstructed_dataset \
   --dataset waymo-open \
   --scenario_ids SCENARIO_ID \
   --ego_view
 ```
 
-The argument is named `--converted_dataset_path` for compatibility, but it can
-point to `converted-dataset`, `reconstructed_dataset`, or `generated_dataset`.
+The `--dataset_path` argument can point to `dataset/converted-dataset`,
+`dataset/reconstructed_dataset`, or `dataset/generated_dataset`.
 Use `--ego_view` to rotate each frame so the red self-driving car faces upward.
 
 Useful rendering options:

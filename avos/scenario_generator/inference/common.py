@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from config_paths import require_optimized_path, require_trainval_path
 from processor.dataset import CustomDataset
-from inference.defaults import dataset_path, resolve_project_path
+from inference.defaults import project_path, resolve_project_path
 from generator.model import ScenarioGenerator
 from reconstructor.utils import update_vel_acc_jerk
 from generator.utils import fc_collate_fn, format_labels, process_scene, rotate
@@ -279,7 +279,7 @@ def generate_dataset_samples(
     config_path,
     weight_path,
     input_root=None,
-    output_root=dataset_path("generated_dataset"),
+    output_root=project_path("dataset", "generated_dataset"),
     subset_name="waymo-open",
     mode="val",
     batch_size=1,

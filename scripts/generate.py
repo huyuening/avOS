@@ -79,12 +79,12 @@ def apply_path_config_defaults(generator_args, path_config):
     append_default_arg(
         generator_args,
         ("--input-path2", "--input_path2"),
-        config_path_value(config, "GENERATOR_INPUT_PATH", "reconstructed_dataset"),
+        config_path_value(config, "GENERATOR_INPUT_PATH", "dataset/reconstructed_dataset"),
     )
     append_default_arg(
         generator_args,
         ("--output-path1", "--output_path1"),
-        config_path_value(config, "GENERATED_DATASET_PATH", "generated_dataset"),
+        config_path_value(config, "GENERATED_DATASET_PATH", "dataset/generated_dataset"),
     )
     return generator_args
 

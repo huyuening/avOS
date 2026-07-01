@@ -19,8 +19,8 @@ from path_config import (
 )
 
 
-DEFAULT_RAW_DATASET_PATH = "raw_dataset"
-DEFAULT_CONVERTED_DATASET_PATH = "converted-dataset"
+DEFAULT_RAW_DATASET_PATH = "dataset/raw_dataset"
+DEFAULT_CONVERTED_DATASET_PATH = "dataset/converted-dataset"
 
 
 CONVERTERS = {

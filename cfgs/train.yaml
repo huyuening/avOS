@@ -3,7 +3,7 @@ WANDB_API_KEY: null
 SEED: 0
 
 DATASET:
-  OPTIMIZED_PATH: converted-dataset/waymo-open
+  OPTIMIZED_PATH: dataset/converted-dataset/waymo-open
   TRAINVAL_PATH: datasets/trainval_dataset/waymo-open
 
 DATALIST:

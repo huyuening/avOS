@@ -7,10 +7,10 @@ RECONSTRUCTOR: motion_reconstructor_v2
 
 DATA:
   MAP_CODE_PATH: data/inference_data/map_codes
-  OPTIMIZED_PATH: converted-dataset
+  OPTIMIZED_PATH: dataset/converted-dataset
 
 OUTPUT:
-  SCENARIO_PATH: generated_dataset
+  SCENARIO_PATH: dataset/generated_dataset
 
 NORMAL:
   ROAD_TYPE: null

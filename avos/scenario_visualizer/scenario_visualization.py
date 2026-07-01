@@ -15,8 +15,8 @@ from path_config import (
 )
 
 
-DEFAULT_CONVERTED_DATASET_PATH = "converted-dataset"
-DEFAULT_RESULT_PATH = "video-dataset"
+DEFAULT_DATASET_PATH = "dataset/generated_dataset"
+DEFAULT_RESULT_PATH = "dataset/video-dataset"
 DEFAULT_DATASET = "waymo-open"
 
 
@@ -30,11 +30,16 @@ def build_arg_parser():
         help="YAML file that defines default dataset and output paths.",
     )
     parser.add_argument(
+        "--dataset_path",
+        dest="dataset_path",
+        default=None,
+        help="Scenario dataset root directory.",
+    )
+    parser.add_argument(
         "--converted_dataset_path",
         "--old_dataset_path",
-        dest="converted_dataset_path",
-        default=None,
-        help="Converted dataset root directory.",
+        dest="dataset_path",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--dataset",
@@ -71,11 +76,11 @@ def build_arg_parser():
 
 def apply_path_config_defaults(args):
     config = load_path_config(args.path_config)
-    if args.converted_dataset_path is None:
-        args.converted_dataset_path = config_path_value(
+    if args.dataset_path is None:
+        args.dataset_path = config_path_value(
             config,
             "VISUALIZATION_INPUT_PATH",
-            DEFAULT_CONVERTED_DATASET_PATH,
+            DEFAULT_DATASET_PATH,
         )
     if args.dataset_name is None:
         args.dataset_name = config_value(config, "DEFAULT_DATASET", DEFAULT_DATASET)
@@ -87,9 +92,9 @@ def apply_path_config_defaults(args):
 
 
 def scenario_paths(args):
-    dataset_dir = Path(args.converted_dataset_path) / args.dataset_name
+    dataset_dir = Path(args.dataset_path) / args.dataset_name
     if not dataset_dir.exists():
-        raise FileNotFoundError(f"Cannot find converted dataset directory: {dataset_dir}")
+        raise FileNotFoundError(f"Cannot find scenario dataset directory: {dataset_dir}")
 
     if args.scenario_ids:
         paths = [dataset_dir / f"{scenario_id}.pkl" for scenario_id in args.scenario_ids]

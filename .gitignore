@@ -16,6 +16,11 @@ converted-dataset/
 reconstructed_dataset/
 generated_dataset/
 video-dataset/
+dataset/raw_dataset/
+dataset/converted-dataset/
+dataset/reconstructed_dataset/
+dataset/generated_dataset/
+dataset/video-dataset/
 datasets/generated_dataset/
 datasets/trainval_dataset/
 datasets/visualization_dataset/

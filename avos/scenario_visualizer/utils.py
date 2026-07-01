@@ -367,7 +367,7 @@ class ScenarioVisualization(object):
     def plot_map_features(self, data, fig, ax, result_path, plot=True, extra_plot=False):
         if not plot:
             print("No map features")
-            return # pickle.dump((fig, ax), open('/home/dell/PycharmProjects/Xdata/result/typical_traffc_event_visualization_result/map_features.pkl', 'wb'))
+            return
 
         map_features = data['map_features']
         for map_feature_id in map_features:

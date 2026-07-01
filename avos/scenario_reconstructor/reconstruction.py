@@ -25,8 +25,8 @@ from path_config import (
 )
 
 
-DEFAULT_CONVERTED_DATASET_PATH = "converted-dataset"
-RECOMMENDED_RECONSTRUCTED_DATASET_PATH = "reconstructed_dataset"
+DEFAULT_CONVERTED_DATASET_PATH = "dataset/converted-dataset"
+RECOMMENDED_RECONSTRUCTED_DATASET_PATH = "dataset/reconstructed_dataset"
 
 
 @dataclass(frozen=True)

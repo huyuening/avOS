@@ -4,13 +4,13 @@ DEFAULT_DATASET: waymo-open
 NUM_WORKERS: 8
 VISUALIZATION_NUM_WORKERS: 1
 
-RAW_DATASET_PATH: raw_dataset
-CONVERTED_DATASET_PATH: converted-dataset
-RECONSTRUCTED_DATASET_PATH: reconstructed_dataset
-GENERATOR_INPUT_PATH: reconstructed_dataset
-GENERATED_DATASET_PATH: generated_dataset
-VISUALIZATION_INPUT_PATH: generated_dataset
-VIDEO_DATASET_PATH: video-dataset
+RAW_DATASET_PATH: dataset/raw_dataset
+CONVERTED_DATASET_PATH: dataset/converted-dataset
+RECONSTRUCTED_DATASET_PATH: dataset/reconstructed_dataset
+GENERATOR_INPUT_PATH: dataset/reconstructed_dataset
+GENERATED_DATASET_PATH: dataset/generated_dataset
+VISUALIZATION_INPUT_PATH: dataset/generated_dataset
+VIDEO_DATASET_PATH: dataset/video-dataset
 
 # Optional dataset-specific overrides. Leave a value empty to use
 # RAW_DATASET_PATH/<dataset>.
