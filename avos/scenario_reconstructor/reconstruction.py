@@ -17,8 +17,15 @@ from scenario_reconstructor.object_track_reconstruction import (
     ReconstructionConfig,
     reconstruct_object_state,
 )
+from path_config import (
+    DEFAULT_PATH_CONFIG,
+    config_int_value,
+    config_path_value,
+    load_path_config,
+)
 
 
+DEFAULT_CONVERTED_DATASET_PATH = "converted-dataset"
 RECOMMENDED_RECONSTRUCTED_DATASET_PATH = "reconstructed_dataset"
 
 
@@ -46,6 +53,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Reconstruct one converted scenario dataset in the unified avOS pickle format.",
     )
     parser.add_argument(
+        "--path_config",
+        "--path-config",
+        dest="path_config",
+        default=str(DEFAULT_PATH_CONFIG),
+        help="YAML file that defines default dataset and output paths.",
+    )
+    parser.add_argument(
         "--dataset",
         "--subset_name",
         dest="dataset",
@@ -54,12 +68,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--converted_dataset_path",
-        required=True,
+        default=None,
         help="Root directory containing converted dataset subdirectories.",
     )
     parser.add_argument(
         "--reconstructed_dataset_path",
-        required=True,
+        default=None,
         help=f"Root directory for reconstructed dataset output. Recommended: {RECOMMENDED_RECONSTRUCTED_DATASET_PATH}.",
     )
     parser.add_argument(
@@ -77,7 +91,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--num_workers",
         type=int,
-        required=True,
+        default=None,
         help="Number of worker processes. Recommended: 8. Use 1 for easier debugging.",
     )
     parser.add_argument(
@@ -109,6 +123,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Print planned reconstruction files without writing output.",
     )
     return parser
+
+
+def apply_path_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    config = load_path_config(args.path_config)
+    if args.converted_dataset_path is None:
+        args.converted_dataset_path = config_path_value(
+            config,
+            "CONVERTED_DATASET_PATH",
+            DEFAULT_CONVERTED_DATASET_PATH,
+        )
+    if args.reconstructed_dataset_path is None:
+        args.reconstructed_dataset_path = config_path_value(
+            config,
+            "RECONSTRUCTED_DATASET_PATH",
+            RECOMMENDED_RECONSTRUCTED_DATASET_PATH,
+        )
+    if args.num_workers is None:
+        args.num_workers = config_int_value(config, "NUM_WORKERS", 8)
+    return args
 
 
 def reconstruct_dataset(args: argparse.Namespace) -> int:
@@ -270,6 +303,7 @@ def print_summary(dataset: str, stats: list[ScenarioStats], output_dir: Path) ->
 
 def main(argv=None) -> int:
     args = build_arg_parser().parse_args(argv)
+    args = apply_path_config_defaults(args)
     return reconstruct_dataset(args)
 
 

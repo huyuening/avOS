@@ -10,9 +10,17 @@ if str(AVOS_DIR) not in sys.path:
     sys.path.insert(0, str(AVOS_DIR))
 
 from scenario_convertor.internal import INTERNAL_RUN_ENV
+from path_config import (
+    DEFAULT_PATH_CONFIG,
+    config_int_value,
+    config_path_value,
+    load_path_config,
+    raw_dataset_override,
+)
 
 
-DEFAULT_CONVERTED_DATASET_PATH = "/dataset/x-scene/converted-dataset"
+DEFAULT_RAW_DATASET_PATH = "raw_dataset"
+DEFAULT_CONVERTED_DATASET_PATH = "converted-dataset"
 
 
 CONVERTERS = {
@@ -37,6 +45,13 @@ def build_arg_parser():
         description="Unified scenario converter. Each converter writes the Waymo-style pickle format."
     )
     parser.add_argument(
+        "--path_config",
+        "--path-config",
+        dest="path_config",
+        default=str(DEFAULT_PATH_CONFIG),
+        help="YAML file that defines default dataset and output paths.",
+    )
+    parser.add_argument(
         "--dataset",
         nargs="+",
         default=["all"],
@@ -54,7 +69,7 @@ def build_arg_parser():
     )
     parser.add_argument(
         "--converted_dataset_path",
-        default=DEFAULT_CONVERTED_DATASET_PATH,
+        default=None,
         type=str,
         help="The file directory for saving converted datasets.",
     )
@@ -136,6 +151,16 @@ def resolve_raw_dataset_path(raw_dataset_path, dataset, multiple_datasets):
     return str(raw_path)
 
 
+def configured_raw_dataset_path(args, dataset, multiple_datasets):
+    if args._raw_dataset_path_from_cli:
+        return resolve_raw_dataset_path(args.raw_dataset_path, dataset, multiple_datasets)
+
+    dataset_override = raw_dataset_override(args._path_config_data, dataset)
+    if dataset_override is not None:
+        return dataset_override
+    return str(Path(args.raw_dataset_path) / dataset)
+
+
 def build_command(args, dataset, script_path, multiple_datasets=False):
     command = [
         args.python,
@@ -148,7 +173,7 @@ def build_command(args, dataset, script_path, multiple_datasets=False):
         command.extend(
             [
                 "--raw_dataset_path",
-                resolve_raw_dataset_path(args.raw_dataset_path, dataset, multiple_datasets),
+                configured_raw_dataset_path(args, dataset, multiple_datasets),
             ]
         )
     if args.subset_name is not None:
@@ -165,6 +190,25 @@ def build_command(args, dataset, script_path, multiple_datasets=False):
         command.extend(extra_args)
 
     return command
+
+
+def apply_path_config_defaults(args):
+    config = load_path_config(args.path_config)
+    args._path_config_data = config
+    args._raw_dataset_path_from_cli = args.raw_dataset_path is not None
+
+    if args.raw_dataset_path is None:
+        args.raw_dataset_path = config_path_value(config, "RAW_DATASET_PATH", DEFAULT_RAW_DATASET_PATH)
+    if args.converted_dataset_path is None:
+        args.converted_dataset_path = config_path_value(
+            config,
+            "CONVERTED_DATASET_PATH",
+            DEFAULT_CONVERTED_DATASET_PATH,
+        )
+    if args.num_workers is None:
+        args.num_workers = config_int_value(config, "NUM_WORKERS")
+
+    return args
 
 
 def build_subprocess_env():
@@ -215,6 +259,7 @@ def run_converters(args):
 
 def main(argv=None):
     args = build_arg_parser().parse_args(argv)
+    args = apply_path_config_defaults(args)
     return run_converters(args)
 
 

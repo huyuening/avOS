@@ -27,9 +27,26 @@ export MLLM_API_KEY=your_mllm_or_openai_key
 
 ## Data Preparation
 
+Set common paths in `cfgs/paths.yaml` before running the pipeline:
+
+```yaml
+RAW_DATASET_PATH: /path_to/raw_dataset
+CONVERTED_DATASET_PATH: /path_to/converted-dataset
+RECONSTRUCTED_DATASET_PATH: /path_to/reconstructed_dataset
+GENERATOR_INPUT_PATH: /path_to/reconstructed_dataset
+GENERATED_DATASET_PATH: /path_to/generated_dataset
+VISUALIZATION_INPUT_PATH: /path_to/generated_dataset
+VIDEO_DATASET_PATH: /path_to/video-dataset
+NUM_WORKERS: 8
+```
+
+Relative paths in this file are resolved from the repository root. Use
+`--path_config another_paths.yaml` to run with a different path file.
+
 Download the required raw datasets and place each dataset under
 `raw_dataset/<dataset>/`. The `<dataset>` folder name should use one of the
-supported names below because the same value is passed to `--dataset`.
+supported names below because the same value is passed to `--dataset`. If you
+use another raw-data root, update `RAW_DATASET_PATH` in `cfgs/paths.yaml`.
 
 ```text
 raw_dataset/
@@ -44,9 +61,14 @@ raw_dataset/
   waymo-open/
 ```
 
-If the datasets follow this layout, pass `--raw_dataset_path raw_dataset`; the
-converter will automatically use `raw_dataset/<dataset>`. If a single raw
-dataset is stored elsewhere, pass that dataset-specific location instead.
+If a single raw dataset is stored outside `RAW_DATASET_PATH/<dataset>`, set a
+dataset-specific override under `RAW_DATASETS` in `cfgs/paths.yaml`.
+
+```yaml
+RAW_DATASETS:
+  nuplan: /path_to/nuplan
+  waymo-open: /path_to/waymo-open
+```
 
 Raw dataset links:
 
@@ -75,10 +97,7 @@ Example for Waymo Open Motion Dataset:
 
 ```bash
 python scripts/convert.py \
-  --dataset waymo-open \
-  --raw_dataset_path raw_dataset \
-  --converted_dataset_path converted-dataset \
-  --num_workers 8
+  --dataset waymo-open
 ```
 
 Supported `<dataset>` options:
@@ -99,10 +118,7 @@ You can convert several local raw dataset folders with one command:
 
 ```bash
 python scripts/convert.py \
-  --dataset waymo-open nuplan interaction \
-  --raw_dataset_path raw_dataset \
-  --converted_dataset_path converted-dataset \
-  --num_workers 8
+  --dataset waymo-open nuplan interaction
 ```
 
 The converted output is the canonical input for reconstruction, generation, and
@@ -119,10 +135,7 @@ Run one reconstructed dataset:
 
 ```bash
 python scripts/reconstruct.py \
-  --dataset waymo-open \
-  --converted_dataset_path converted-dataset \
-  --reconstructed_dataset_path reconstructed_dataset \
-  --num_workers 8
+  --dataset waymo-open
 ```
 
 ## 3. Extender
@@ -135,9 +148,6 @@ scenario:
 
 ```bash
 python scripts/generate.py normal -- \
-  --subset-name waymo-open \
-  --input-path2 reconstructed_dataset \
-  --output-path1 generated_dataset \
   --road-type 1 \
   --density-type 2 \
   --device cpu
@@ -171,9 +181,6 @@ reconstructs the generated trajectories, and saves one or more scenarios:
 export MLLM_API_KEY=your_mllm_or_openai_key
 
 python scripts/generate.py critical -- \
-  --subset-name waymo-open \
-  --input-path2 reconstructed_dataset \
-  --output-path1 generated_dataset \
   --prompt-name A.6.12 \
   --num-generations 1 \
   --interpreter-models GPT
@@ -183,9 +190,6 @@ To use the official OpenAI API for the GPT interpreter:
 
 ```bash
 python scripts/generate.py critical -- \
-  --subset-name waymo-open \
-  --input-path2 reconstructed_dataset \
-  --output-path1 generated_dataset \
   --interpreter-models GPT \
   --openai-base-url https://api.openai.com/v1 \
   --gpt-model your_available_vision_model
@@ -193,29 +197,27 @@ python scripts/generate.py critical -- \
 
 ## 4. Visualize Scenarios
 
-Visualization reads any scenario root with the layout
-`<root>/<dataset>/<scenario_id>.pkl` and writes videos to
-`<result_path>/<dataset>/`.
+Visualization reads scenarios from `VISUALIZATION_INPUT_PATH` and writes videos
+to `VIDEO_DATASET_PATH/<dataset>/`.
 
-Visualize a reconstructed scenario:
+Visualize a generated scenario:
+
+```bash
+python scripts/visualize.py \
+  --dataset waymo-open \
+  --scenario_ids GENERATED_SCENARIO_ID \
+  --ego_view
+```
+
+To visualize reconstructed scenarios instead, set
+`VISUALIZATION_INPUT_PATH: reconstructed_dataset` in `cfgs/paths.yaml`, or
+temporarily override the input path:
 
 ```bash
 python scripts/visualize.py \
   --converted_dataset_path reconstructed_dataset \
   --dataset waymo-open \
   --scenario_ids SCENARIO_ID \
-  --result_path video-dataset \
-  --ego_view
-```
-
-Visualize a generated scenario:
-
-```bash
-python scripts/visualize.py \
-  --converted_dataset_path generated_dataset \
-  --dataset waymo-open \
-  --scenario_ids GENERATED_SCENARIO_ID \
-  --result_path video-dataset/generated \
   --ego_view
 ```
 
@@ -227,11 +229,9 @@ Useful rendering options:
 
 ```bash
 python scripts/visualize.py \
-  --converted_dataset_path reconstructed_dataset \
   --dataset waymo-open \
   --max_scenarios 10 \
   --num_workers 4 \
   --frame_stride 2 \
-  --no_labels \
-  --result_path video-dataset
+  --no_labels
 ```

@@ -1,0 +1,26 @@
+# Paths can be absolute, such as /path_to/raw_dataset, or relative to this repository.
+
+DEFAULT_DATASET: waymo-open
+NUM_WORKERS: 8
+VISUALIZATION_NUM_WORKERS: 1
+
+RAW_DATASET_PATH: raw_dataset
+CONVERTED_DATASET_PATH: converted-dataset
+RECONSTRUCTED_DATASET_PATH: reconstructed_dataset
+GENERATOR_INPUT_PATH: reconstructed_dataset
+GENERATED_DATASET_PATH: generated_dataset
+VISUALIZATION_INPUT_PATH: generated_dataset
+VIDEO_DATASET_PATH: video-dataset
+
+# Optional dataset-specific overrides. Leave a value empty to use
+# RAW_DATASET_PATH/<dataset>.
+RAW_DATASETS:
+  argoverse-1:
+  argoverse-2:
+  interaction:
+  levelxdata:
+  lyft-level-5:
+  nuplan:
+  shifts:
+  v2x-seq:
+  waymo-open:

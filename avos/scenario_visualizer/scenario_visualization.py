@@ -6,25 +6,41 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 
+from path_config import (
+    DEFAULT_PATH_CONFIG,
+    config_int_value,
+    config_path_value,
+    config_value,
+    load_path_config,
+)
+
 
 DEFAULT_CONVERTED_DATASET_PATH = "converted-dataset"
 DEFAULT_RESULT_PATH = "video-dataset"
+DEFAULT_DATASET = "waymo-open"
 
 
 def build_arg_parser():
     parser = argparse.ArgumentParser(description="avOS scenario visualizer")
     parser.add_argument(
+        "--path_config",
+        "--path-config",
+        dest="path_config",
+        default=str(DEFAULT_PATH_CONFIG),
+        help="YAML file that defines default dataset and output paths.",
+    )
+    parser.add_argument(
         "--converted_dataset_path",
         "--old_dataset_path",
         dest="converted_dataset_path",
-        default=DEFAULT_CONVERTED_DATASET_PATH,
+        default=None,
         help="Converted dataset root directory.",
     )
     parser.add_argument(
         "--dataset",
         "--dataset_name",
         dest="dataset_name",
-        default="waymo-open",
+        default=None,
         help="Converted dataset subset name, for example waymo-open or interaction.",
     )
     parser.add_argument(
@@ -37,10 +53,10 @@ def build_arg_parser():
         "--result_path",
         "--output_path",
         dest="result_path",
-        default=DEFAULT_RESULT_PATH,
+        default=None,
         help="Output video root directory.",
     )
-    parser.add_argument("--num_workers", default=1, type=int, help="Number of scenarios to render in parallel.")
+    parser.add_argument("--num_workers", default=None, type=int, help="Number of scenarios to render in parallel.")
     parser.add_argument("--max_scenarios", default=None, type=int, help="Render at most this many scenarios.")
     parser.add_argument("--max_frames", default=None, type=int, help="Render at most this many frames per scenario.")
     parser.add_argument("--frame_stride", default=1, type=int, help="Render every Nth frame.")
@@ -51,6 +67,23 @@ def build_arg_parser():
     parser.add_argument("--no_labels", action="store_true", help="Skip object id and speed labels.")
     parser.add_argument("--ego_view", action="store_true", help="Rotate the scene so the SDC points upward.")
     return parser
+
+
+def apply_path_config_defaults(args):
+    config = load_path_config(args.path_config)
+    if args.converted_dataset_path is None:
+        args.converted_dataset_path = config_path_value(
+            config,
+            "VISUALIZATION_INPUT_PATH",
+            DEFAULT_CONVERTED_DATASET_PATH,
+        )
+    if args.dataset_name is None:
+        args.dataset_name = config_value(config, "DEFAULT_DATASET", DEFAULT_DATASET)
+    if args.result_path is None:
+        args.result_path = config_path_value(config, "VIDEO_DATASET_PATH", DEFAULT_RESULT_PATH)
+    if args.num_workers is None:
+        args.num_workers = config_int_value(config, "VISUALIZATION_NUM_WORKERS", 1)
+    return args
 
 
 def scenario_paths(args):
@@ -112,6 +145,7 @@ def visualize(args):
 def main(argv=None):
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+    args = apply_path_config_defaults(args)
     visualize(args)
     return 0
 
