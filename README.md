@@ -1,16 +1,8 @@
 # avOS
 
-avOS provides a unified pipeline for autonomous-driving scenario conversion,
-trajectory reconstruction, scenario generation, and visualization. All converted
-datasets are saved as Waymo-style pickle files named `[scenario_id].pkl`, so the
-output of one step can be used directly by the next step.
-
-For detailed local notes, debugging records, and machine-specific settings, keep
-them in `README_LOCAL.md`.
+avOS, an omni-scenario platform for autonomous driving, and constructs a large-scale, highly diverse and high-quality combined realistic and synthetic scenario dataset, as shown in Fig. 1. The platform comprises three components: (1) a scenario converter, which proposes an avos standard covering object tracks, map features, dynamic map states and extra information to integrate open datasets and increase scenario scale and diversity; (2) a scenario reconstructor, which provides a three-step reconstruction method for vehicle, cyclist and pedestrian state data to improve scenario quality; and (3) a scenario extender, which further generalizes critical and normal scenarios according to user demands.
 
 ## Setup
-
-Create a Python 3.10 conda environment and install the shared requirements:
 
 ```bash
 conda create -n avos python=3.10 -y
@@ -19,10 +11,7 @@ pip install -r requirements.txt
 ```
 
 The requirement file is intended to be cross-platform for Windows, macOS, and
-Linux. The converters avoid dataset SDKs with strict platform constraints where
-possible: Waymo uses local WOMD protobuf files, nuPlan uses SQLite/GPKG parsing,
-Argoverse 2 uses parquet/JSON parsing, Lyft Level 5 uses direct zarr/protobuf
-parsing, and Shifts uses bundled protobuf definitions.
+Linux.
 
 If you use the generator, place the external checkpoint at:
 
@@ -37,30 +26,46 @@ environment variables:
 export MLLM_API_KEY=your_mllm_or_openai_key
 ```
 
-## Project Layout
+## Data Preparation
+
+Download the required raw datasets and place them under `raw_dataset/`, or pass
+their actual locations with `--raw_dataset_path` when running a single
+converter.
+
+Recommended local layout:
 
 ```text
-avos/                    # Python package and internal modules
-scripts/                 # Public command-line entrypoints
-cfgs/                    # Generator configs
-data/inference_data/     # Prompt and map-code assets used by generation
-data/checkpoint/         # External generator checkpoint location
-paper/                   # Paper PDF
-requirements.txt
+raw_dataset/
+  argoverse-1/
+  argoverse-2/
+  interaction/
+  levelxdata/
+  lyft-level-5/
+  nuplan/
+  shifts/
+  v2x-seq/
+  waymo-open/
 ```
 
-Use only the public scripts for normal operation:
+Raw dataset links:
 
-```bash
-python scripts/convert.py --help
-python scripts/reconstruct.py --help
-python scripts/generate.py --help
-python scripts/visualize.py --help
-```
+| Dataset | Link |
+| --- | --- |
+| argoverse-1 | [Argoverse 1](https://www.argoverse.org/av1.html) |
+| argoverse-2 | [Argoverse 2](https://www.argoverse.org/av2.html) |
+| interaction | [INTERACTION Dataset](https://interaction-dataset.com/) |
+| levelxdata | [leveLXData](https://levelxdata.com/) |
+| lyft-level-5 | [Lyft Motion Prediction for Autonomous Vehicles](https://www.kaggle.com/competitions/lyft-motion-prediction-autonomous-vehicles/data) |
+| nuplan | [nuPlan](https://www.nuscenes.org/nuplan) |
+| shifts | [Shifts Project](https://github.com/Shifts-Project/shifts) |
+| v2x-seq | [DAIR-V2X](https://github.com/AIR-THU/DAIR-V2X) |
+| waymo-open | [Waymo Open Motion Dataset](https://waymo.com/open/download/#motion-dataset) |
 
-## 1. Convert Raw Datasets
+The original L5Kit documentation points to the Woven by Toyota Prediction
+Dataset. If that page is unavailable, use the Kaggle Lyft Motion Prediction data
+page above.
 
-Conversion reads a raw dataset and writes unified scenario pickle files:
+## 1. Convertor
 
 ```text
 raw_dataset/<dataset>/  ->  converted-dataset/<dataset>/<scenario_id>.pkl
@@ -79,7 +84,6 @@ python scripts/convert.py \
 Supported dataset names:
 
 ```text
-waymo-open
 argoverse-1
 argoverse-2
 interaction
@@ -88,6 +92,7 @@ lyft-level-5
 nuplan
 shifts
 v2x-seq
+waymo-open
 ```
 
 You can convert several datasets with one command:
@@ -103,10 +108,7 @@ When `--raw_dataset_path` is provided, select exactly one dataset because each
 dataset has a different raw directory structure. The converted output is the
 canonical input for reconstruction, generation, and visualization.
 
-## 2. Reconstruct Object Tracks
-
-Reconstruction repairs missing or noisy object-track states in a converted
-dataset and writes the same pickle format to a new root directory:
+## 2. Reconstructor
 
 ```text
 converted-dataset/<dataset>/<scenario_id>.pkl
@@ -123,35 +125,7 @@ python scripts/reconstruct.py \
   --num_workers 8
 ```
 
-For a quick single-scenario check:
-
-```bash
-python scripts/reconstruct.py \
-  --dataset waymo-open \
-  --converted_dataset_path converted-dataset \
-  --reconstructed_dataset_path reconstructed_dataset \
-  --scenario_ids SCENARIO_ID \
-  --num_workers 1
-```
-
-The reconstructed files keep the same directory and filename convention, so any
-later step that accepts a scenario root can read either `converted-dataset` or
-`reconstructed_dataset`.
-
-## 3. Generate Scenarios
-
-Generation uses the Demand2Scenario inference path. It expects Waymo-style
-scenario pickles, map-code assets, and a trained checkpoint:
-
-```text
-source scenarios:  reconstructed_dataset/waymo-open/<scenario_id>.pkl
-map codes:         data/inference_data/map_codes/map_codes.pkl
-checkpoint:        data/checkpoint/generator.pth
-output:            generated_dataset/waymo-open/<scenario_id>.pkl
-```
-
-The default config in `cfgs/infer.yaml` points to `converted-dataset`. To chain
-generation after reconstruction, pass `--input-path2 reconstructed_dataset`.
+## 3. Extender
 
 ### Normal Generation
 
@@ -217,21 +191,6 @@ python scripts/generate.py critical -- \
   --gpt-model your_available_vision_model
 ```
 
-For an offline smoke test without calling an MLLM service:
-
-```bash
-printf '2\n1\n9\n1\nNone\n1\n1\n' | \
-python scripts/generate.py critical -- \
-  --subset-name waymo-open \
-  --input-path2 reconstructed_dataset \
-  --output-path1 generated_dataset \
-  --mock-mllm-response='-- agent 1: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]' \
-  --device cpu
-```
-
-Generated scenarios are saved with the same pickle structure, so they can be
-visualized with the same visualizer used for converted or reconstructed data.
-
 ## 4. Visualize Scenarios
 
 Visualization reads any scenario root with the layout
@@ -276,40 +235,3 @@ python scripts/visualize.py \
   --no_labels \
   --result_path video-dataset
 ```
-
-## End-to-End Example
-
-The following commands form one connected Waymo Open pipeline:
-
-```bash
-conda activate avos
-
-python scripts/convert.py \
-  --dataset waymo-open \
-  --raw_dataset_path raw_dataset/Waymo \
-  --converted_dataset_path converted-dataset \
-  --num_workers 8
-
-python scripts/reconstruct.py \
-  --dataset waymo-open \
-  --converted_dataset_path converted-dataset \
-  --reconstructed_dataset_path reconstructed_dataset \
-  --num_workers 8
-
-python scripts/generate.py normal -- \
-  --subset-name waymo-open \
-  --input-path2 reconstructed_dataset \
-  --output-path1 generated_dataset \
-  --road-type 1 \
-  --density-type 2
-
-python scripts/visualize.py \
-  --converted_dataset_path generated_dataset \
-  --dataset waymo-open \
-  --scenario_ids GENERATED_SCENARIO_ID \
-  --result_path video-dataset/generated \
-  --ego_view
-```
-
-Replace `GENERATED_SCENARIO_ID` with the scenario ID printed by
-`scripts/generate.py`.
