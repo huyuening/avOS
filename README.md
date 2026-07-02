@@ -5,6 +5,8 @@ avOS, an omni-scenario platform for autonomous driving, and constructs a large-s
 ## Setup
 
 ```bash
+git clone https://github.com/huyuening/avOS.git
+cd avOS
 conda create -n avos python=3.10 -y
 conda activate avos
 pip install -r requirements.txt
@@ -12,29 +14,15 @@ pip install -r requirements.txt
 
 The requirement file is intended to be cross-platform for Windows, macOS, and Linux.
 
-If you use the generator, place the external checkpoint at:
+External artifacts for peer review and examples are available on [Figshare](https://doi.org/10.6084/m9.figshare.32845949):
 
-```text
-data/checkpoint/generator.pth
-```
-
-External artifacts for peer review and examples are available on Figshare:
-
-```text
-https://doi.org/10.6084/m9.figshare.32845949
-```
-
-This record contains the scenario generator model weight and a Waymo sample
+This record contains the scenario extender model weight and a waymo-open demo
 dataset. Download the files from the DOI page and place them as follows:
 
 ```text
 data/checkpoint/generator.pth
 dataset/converted-dataset/waymo-open/<scenario_id>.pkl
 ```
-
-If the downloaded sample dataset is provided as an archive with the repository
-folder structure, extract it from the repository root. Otherwise, create the
-directories manually and move the files into the paths above.
 
 Optional API keys for critical-scenario generation should be provided through
 environment variables:
@@ -58,49 +46,30 @@ VIDEO_DATASET_PATH: dataset/video-dataset
 NUM_WORKERS: 8
 ```
 
-Relative paths in this file are resolved from the repository root. Use
-`--path_config another_paths.yaml` to run with a different path file.
+Open scenario dataset links: [argoverse-1](https://www.argoverse.org/av1.html),
+[argoverse-2](https://www.argoverse.org/av2.html),
+[interaction](https://interaction-dataset.com/),
+[levelxdata](https://levelxdata.com/),
+[lyft-level-5](https://www.kaggle.com/competitions/lyft-motion-prediction-autonomous-vehicles/data),
+[nuplan](https://www.nuscenes.org/nuplan),
+[shifts](https://github.com/Shifts-Project/shifts),
+[v2x-seq](https://github.com/AIR-THU/DAIR-V2X),
+[waymo-open](https://waymo.com/open/download/#motion-dataset).
 
-Download the required raw datasets and place each dataset under
-`dataset/raw_dataset/<dataset>/`. The `<dataset>` folder name should use one of the
-supported names below because the same value is passed to `--dataset`. If you
-use another raw-data root, update `RAW_DATASET_PATH` in `cfgs/paths.yaml`.
+After downloading a raw dataset, place or symlink its main folder under
+`RAW_DATASET_PATH` with one of the exact supported `<dataset>` names:
 
 ```text
-dataset/raw_dataset/
-  argoverse-1/
-  argoverse-2/
-  interaction/
-  levelxdata/
-  lyft-level-5/
-  nuplan/
-  shifts/
-  v2x-seq/
-  waymo-open/
+dataset/raw_dataset/argoverse-1/
+dataset/raw_dataset/argoverse-2/
+dataset/raw_dataset/interaction/
+dataset/raw_dataset/levelxdata/
+dataset/raw_dataset/lyft-level-5/
+dataset/raw_dataset/nuplan/
+dataset/raw_dataset/shifts/
+dataset/raw_dataset/v2x-seq/
+dataset/raw_dataset/waymo-open/
 ```
-
-If a single raw dataset is stored outside `RAW_DATASET_PATH/<dataset>`, set a
-dataset-specific override under `RAW_DATASETS` in `cfgs/paths.yaml`.
-
-```yaml
-RAW_DATASETS:
-  nuplan: /path_to/nuplan
-  waymo-open: /path_to/waymo-open
-```
-
-Raw dataset links:
-
-| `<dataset>` option and raw main folder name | Link |
-| --- | --- |
-| argoverse-1 | [Argoverse 1](https://www.argoverse.org/av1.html) |
-| argoverse-2 | [Argoverse 2](https://www.argoverse.org/av2.html) |
-| interaction | [INTERACTION Dataset](https://interaction-dataset.com/) |
-| levelxdata | [leveLXData](https://levelxdata.com/) |
-| lyft-level-5 | [Lyft Motion Prediction for Autonomous Vehicles](https://www.kaggle.com/competitions/lyft-motion-prediction-autonomous-vehicles/data) |
-| nuplan | [nuPlan](https://www.nuscenes.org/nuplan) |
-| shifts | [Shifts Project](https://github.com/Shifts-Project/shifts) |
-| v2x-seq | [DAIR-V2X](https://github.com/AIR-THU/DAIR-V2X) |
-| waymo-open | [Waymo Open Motion Dataset](https://waymo.com/open/download/#motion-dataset) |
 
 `--dataset` also accepts `all` to run every converter, but `all` is not a raw
 dataset folder name.
@@ -121,15 +90,7 @@ python scripts/convert.py \
 Supported `<dataset>` options:
 
 ```text
-argoverse-1
-argoverse-2
-interaction
-levelxdata
-lyft-level-5
-nuplan
-shifts
-v2x-seq
-waymo-open
+argoverse-1, argoverse-2, interaction, levelxdata, lyft-level-5, nuplan, shifts, v2x-seq, waymo-open
 ```
 
 You can convert several local raw dataset folders with one command:
@@ -149,7 +110,7 @@ dataset/converted-dataset/<dataset>/<scenario_id>.pkl
   -> dataset/reconstructed_dataset/<dataset>/<scenario_id>.pkl
 ```
 
-Run one reconstructed dataset:
+Example for Waymo Open Motion Dataset:
 
 ```bash
 python scripts/reconstruct.py \
@@ -174,17 +135,13 @@ python scripts/generate.py normal -- \
 Road types:
 
 ```text
-1 = intersection
-2 = intersection approach
-3 = road segment
+1 = intersection, 2 = intersection approach, 3 = road segment
 ```
 
 Density types:
 
 ```text
-1 = dense
-2 = medium
-3 = sparse
+1 = dense, 2 = medium, 3 = sparse
 ```
 
 Use `--device cuda` or omit `--device` when a CUDA GPU is available.
@@ -196,7 +153,7 @@ MLLM interpreter to convert a text prompt into agent codes, runs the generator,
 reconstructs the generated trajectories, and saves one or more scenarios:
 
 ```bash
-export MLLM_API_KEY=your_mllm_or_openai_key
+export MLLM_API_KEY=your_metachat_or_openai_key
 
 python scripts/generate.py critical -- \
   --prompt-name A.6.12 \
@@ -210,15 +167,12 @@ To use the official OpenAI API for the GPT interpreter:
 python scripts/generate.py critical -- \
   --interpreter-models GPT \
   --openai-base-url https://api.openai.com/v1 \
-  --gpt-model your_available_vision_model
+  --gpt-model your_available_mllm_model
 ```
 
 ## 4. Visualizer
 
-Visualization reads scenarios from `VISUALIZATION_INPUT_PATH` and writes videos
-to `VIDEO_DATASET_PATH/<dataset>/`.
-
-Visualize a generated scenario:
+Example for Waymo Open Motion Dataset:
 
 ```bash
 python scripts/visualize.py \
@@ -242,14 +196,3 @@ python scripts/visualize.py \
 The `--dataset_path` argument can point to `dataset/converted-dataset`,
 `dataset/reconstructed_dataset`, or `dataset/generated_dataset`.
 Use `--ego_view` to rotate each frame so the red self-driving car faces upward.
-
-Useful rendering options:
-
-```bash
-python scripts/visualize.py \
-  --dataset waymo-open \
-  --max_scenarios 10 \
-  --num_workers 4 \
-  --frame_stride 2 \
-  --no_labels
-```
