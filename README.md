@@ -1,6 +1,6 @@
-# avOS
+# avOS: an omni-scenario platform for autonomous driving
 
-avOS, an omni-scenario platform for autonomous driving, and constructs a large-scale, highly diverse and high-quality combined realistic and synthetic scenario dataset, as shown in Fig. 1. The platform comprises three components: (1) a scenario converter, which proposes an avos standard covering object tracks, map features, dynamic map states and extra information to integrate open datasets and increase scenario scale and diversity; (2) a scenario reconstructor, which provides a three-step reconstruction method for vehicle, cyclist and pedestrian state data to improve scenario quality; and (3) a scenario extender, which further generalizes critical and normal scenarios according to user demands.
+avOS constructs a large-scale, highly diverse and high-quality combined real-world and synthetic scenario dataset.
 
 ## Setup
 
@@ -36,13 +36,13 @@ export MLLM_API_KEY=your_mllm_or_openai_key
 Set common paths in `cfgs/paths.yaml` before running the pipeline:
 
 ```yaml
-RAW_DATASET_PATH: dataset/raw_dataset
-CONVERTED_DATASET_PATH: dataset/converted-dataset
-RECONSTRUCTED_DATASET_PATH: dataset/reconstructed_dataset
-GENERATOR_INPUT_PATH: dataset/reconstructed_dataset
-GENERATED_DATASET_PATH: dataset/generated_dataset
-VISUALIZATION_INPUT_PATH: dataset/generated_dataset
-VIDEO_DATASET_PATH: dataset/video-dataset
+RAW_DATASET_PATH: /path_to/dataset/raw_dataset
+CONVERTED_DATASET_PATH: /path_to/dataset/converted-dataset
+RECONSTRUCTED_DATASET_PATH: /path_to/dataset/reconstructed_dataset
+GENERATOR_INPUT_PATH: /path_to/dataset/reconstructed_dataset
+GENERATED_DATASET_PATH: /path_to/dataset/generated_dataset
+VISUALIZATION_INPUT_PATH: /path_to/dataset/generated_dataset
+VIDEO_DATASET_PATH: /path_to/dataset/video-dataset
 NUM_WORKERS: 8
 ```
 
@@ -56,20 +56,10 @@ Open scenario dataset links: [argoverse-1](https://www.argoverse.org/av1.html),
 [v2x-seq](https://github.com/AIR-THU/DAIR-V2X),
 [waymo-open](https://waymo.com/open/download/#motion-dataset).
 
-After downloading a raw dataset, place or symlink its main folder under
-`RAW_DATASET_PATH` with one of the exact supported `<dataset>` names:
-
-```text
-dataset/raw_dataset/argoverse-1/
-dataset/raw_dataset/argoverse-2/
-dataset/raw_dataset/interaction/
-dataset/raw_dataset/levelxdata/
-dataset/raw_dataset/lyft-level-5/
-dataset/raw_dataset/nuplan/
-dataset/raw_dataset/shifts/
-dataset/raw_dataset/v2x-seq/
-dataset/raw_dataset/waymo-open/
-```
+After downloading a raw dataset, place or symlink its main folder as
+`RAW_DATASET_PATH/<dataset>/`. Supported `<dataset>` names are:
+`argoverse-1`, `argoverse-2`, `interaction`, `levelxdata`, `lyft-level-5`,
+`nuplan`, `shifts`, `v2x-seq`, and `waymo-open`.
 
 `--dataset` also accepts `all` to run every converter, but `all` is not a raw
 dataset folder name.
