@@ -70,6 +70,10 @@ dataset folder name.
 dataset/raw_dataset/<dataset>/  ->  dataset/converted-dataset/<dataset>/<scenario_id>.pkl
 ```
 
+Converting a full raw dataset can take a long time. Increase `NUM_WORKERS` in
+`cfgs/paths.yaml`, or pass a larger `--num_workers` value, according to your CPU
+and memory budget.
+
 Example for Waymo Open Motion Dataset:
 
 ```bash
@@ -100,6 +104,9 @@ dataset/converted-dataset/<dataset>/<scenario_id>.pkl
   -> dataset/reconstructed_dataset/<dataset>/<scenario_id>.pkl
 ```
 
+Reconstructing a full converted dataset can also be time-consuming. Use as many
+`num_workers` as your machine can stably support.
+
 Example for Waymo Open Motion Dataset:
 
 ```bash
@@ -108,6 +115,12 @@ python scripts/reconstruct.py \
 ```
 
 ## 3. Extender
+
+The current Extender is a preview release rather than the full version. It is
+trained on the Waymo Open Motion Dataset and currently supports Waymo scenarios
+only. Existing limitations include limited source-domain coverage, limited
+generation controls, inference-only checkpoint release, and no released
+training/fine-tuning pipeline. The full version is coming with Demand2Scenario.
 
 ### Normal Generation
 
