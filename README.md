@@ -16,12 +16,12 @@ The requirement file is intended to be cross-platform for Windows, macOS, and Li
 
 External artifacts for peer review and examples are available on [Figshare](https://doi.org/10.6084/m9.figshare.32845949):
 
-This record contains the scenario extender model weight and a waymo-open demo
-dataset. Download the files from the DOI page and place them as follows:
+This record contains the scenario extender model weight and a Waymo Open demo
+TFRecord. Download the files from the DOI page and place them as follows:
 
 ```text
 data/checkpoint/generator.pth
-dataset/converted-dataset/waymo-open/<scenario_id>.pkl
+/path_to/raw_dataset/waymo-open/training_20s.tfrecord-00000-of-01000
 ```
 
 Optional API keys for critical-scenario generation should be provided through
@@ -36,7 +36,7 @@ export MLLM_API_KEY=your_mllm_or_openai_key
 Set common paths in `cfgs/paths.yaml` before running the pipeline:
 
 ```yaml
-RAW_DATASET_PATH: /path_to/dataset/raw_dataset
+RAW_DATASET_PATH: /path_to/raw_dataset
 CONVERTED_DATASET_PATH: /path_to/dataset/converted-dataset
 RECONSTRUCTED_DATASET_PATH: /path_to/dataset/reconstructed_dataset
 GENERATOR_INPUT_PATH: /path_to/dataset/reconstructed_dataset
