@@ -113,7 +113,7 @@ class SavitzkyGolayTests(unittest.TestCase):
 
 class MovingSelectionTests(unittest.TestCase):
     def test_original_speed_gates_by_type_and_short_observations(self):
-        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/reconstruction'))
         from select_waymo_moving_tracks import motion_eligibility
         t,s=track(speed=.6)
         self.assertTrue(motion_eligibility(s,t,'PEDESTRIAN')['sg_eligible'])

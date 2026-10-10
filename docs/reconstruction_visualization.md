@@ -9,7 +9,7 @@ low-speed heading limitations are recorded in the method documentation.
 ## Three-example figure
 
 ```sh
-python scripts/plot_waymo_reconstruction_examples.py \
+python tools/reconstruction/plot_waymo_reconstruction_examples.py \
   --export-current-stages --filter-method sg \
   --output-dir output/waymo-reconstruction-figure
 ```
@@ -50,7 +50,7 @@ and pickle files.
 ## Offline selection gallery
 
 ```sh
-python scripts/reconstruct_waymo_catalog.py \
+python tools/reconstruction/reconstruct_waymo_catalog.py \
   --filter-method sg --output-dir output/waymo-catalog
 ```
 
@@ -59,7 +59,7 @@ select one example per type, and export the selection JSON. Full-range mode
 reveals curves outside the standard bounds. Headings spanning more than 2π
 produce a notice rather than changing the underlying data.
 
-`scripts/select_waymo_anomalies.py` selects 50 candidates per type using equal
+`tools/reconstruction/select_waymo_anomalies.py` selects 50 candidates per type using equal
 weights on within-type percentiles of missing fraction, circular angular-speed
 P99, acceleration-magnitude P99, and jerk-magnitude P99. Metrics are calculated
 from full-precision raw data. A 2π representation jump is not counted as extreme
@@ -69,7 +69,7 @@ The local sample contains only 50 cyclists, so all are retained.
 To update the same selected objects after changing the reconstruction:
 
 ```sh
-python scripts/reconstruct_waymo_catalog.py \
+python tools/reconstruction/reconstruct_waymo_catalog.py \
   --selection-index output/previous-selection/trajectory_index.json \
   --filter-method sg --output-dir output/refreshed-selection
 ```
@@ -80,7 +80,7 @@ are not needed in the source-code repository.
 
 ## Moving examples with the original SG algorithm
 
-Use `scripts/select_waymo_moving_tracks.py` to apply the original SG motion
+Use `tools/reconstruction/select_waymo_moving_tracks.py` to apply the original SG motion
 criteria to the full ranked raw-data index, then pass its selection index to
 `reconstruct_waymo_catalog.py --filter-method sg`. The selection audit records
 all exclusions. No low-speed or interpolation-overshoot protection is added.

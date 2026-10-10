@@ -27,7 +27,7 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = "104202f4f2590dff"
 EXAMPLES = [("Vehicle", "1"), ("Cyclist", "197"), ("Pedestrian", "158")]
 RAW = "#CD6337"

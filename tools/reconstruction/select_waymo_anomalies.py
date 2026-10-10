@@ -9,7 +9,7 @@ from plot_waymo_reconstruction_examples import derived_motion
 import numpy as np
 from scipy.stats import rankdata
 
-ROOT=Path(__file__).resolve().parents[1]
+ROOT=Path(__file__).resolve().parents[2]
 METRICS=['missing_fraction','angular_speed_p99_rad_s','acceleration_p99_m_s2','jerk_p99_m_s3']
 
 def scores(rows,entry):

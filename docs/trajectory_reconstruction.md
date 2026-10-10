@@ -96,10 +96,10 @@ Butterworth does not perform the SG velocity filtering/reintegration stage.
 python scripts/reconstruct.py --dataset waymo-open --filter-method sg
 python scripts/reconstruct.py --dataset waymo-open --filter-method butterworth --cutoff_freq 0.5
 python -m unittest discover -s tests -v
-python scripts/select_waymo_moving_tracks.py \
+python tools/reconstruction/select_waymo_moving_tracks.py \
   --ranked-index output/previous-selection/all_ranked_candidates.json \
   --output-dir output/moving-selection
-python scripts/reconstruct_waymo_catalog.py --filter-method sg \
+python tools/reconstruction/reconstruct_waymo_catalog.py --filter-method sg \
   --selection-index output/moving-selection/trajectory_index.json \
   --output-dir output/waymo-sg-gallery
 ```

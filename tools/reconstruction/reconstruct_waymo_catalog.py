@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'avos'))
 from scenario_reconstructor.object_track_reconstruction import ReconstructionConfig, reconstruct_object_state
 from plot_waymo_reconstruction_examples import derived_motion
@@ -114,7 +114,7 @@ def main():
         w=csv.DictWriter(f,fieldnames=list(dict.fromkeys(k for e in index for k in e)));w.writeheader();w.writerows(index)
     (out/'gallery/catalog.js').write_text('window.CATALOG='+json.dumps(index,separators=(',',':'),allow_nan=False)+';')
     selection_key = config.filter_method + '-' + hashlib.sha256(json.dumps(sorted((e['scenario'],e['object']) for e in index)).encode()).hexdigest()[:12]
-    template=(ROOT/'scripts/templates/waymo_catalog.html').read_text().replace('__METHOD_DESCRIPTION__',config.description).replace('__SELECTION_KEY__',selection_key)
+    template=(ROOT/'tools/reconstruction/templates/waymo_catalog.html').read_text().replace('__METHOD_DESCRIPTION__',config.description).replace('__SELECTION_KEY__',selection_key)
     if selected is not None:
         assert {(e['scenario'],e['object']) for e in index}==set(selected), 'Selection objects missing from inputs'
         index.sort(key=lambda e: (['VEHICLE','CYCLIST','PEDESTRIAN'].index(e['type']),e.get('anomaly_rank',0)))

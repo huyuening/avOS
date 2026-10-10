@@ -1,6 +1,6 @@
 """Paper-style reconstruction plots, independent of the reconstruction algorithm.
 
-Inputs are examples loaded by scripts/plot_waymo_reconstruction_examples.py.
+Inputs are examples loaded by tools/reconstruction/plot_waymo_reconstruction_examples.py.
 Optional real intermediate snapshots enable After step 1/2/3 legends. Without
 these snapshots the plot explicitly compares recorded and reconstructed data.
 """

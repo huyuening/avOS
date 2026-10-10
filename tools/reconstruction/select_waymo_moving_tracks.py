@@ -14,7 +14,7 @@ import pickle
 import sys
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/'avos'))
 from scenario_reconstructor.object_track_reconstruction import _interpolate_center
 

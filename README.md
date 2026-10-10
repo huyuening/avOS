@@ -110,6 +110,8 @@ workflow, including velocity filtering and position reintegration. The earlier
 Butterworth method remains available with `--filter-method butterworth`. See
 [the processing steps and compatibility notes](docs/trajectory_reconstruction.md)
 and [diagnostic visualization](docs/reconstruction_visualization.md).
+Diagnostic plotting, selection, and gallery utilities live in
+`tools/reconstruction/`; `scripts/` contains only the main workflow entry points.
 
 Reconstructing a full converted dataset can also be time-consuming. Use as many
 `num_workers` as your machine can stably support.
