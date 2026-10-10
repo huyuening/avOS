@@ -94,7 +94,7 @@ def plot_reconstruction_examples(examples, output_stem, scenario_id, reference_b
             raw_h = np.asarray(raw["heading"], float)[idx]
             raw_h = raw_h.copy()
             raw_h[~valid] = np.nan
-            heading_sources = ([raw_h] + [np.asarray(e['stages'][n]['state']['heading'])[idx] for n in (1, 2, 3)]
+            heading_sources = ([raw_h] + [np.asarray(e['stages'][n]['state']['heading'])[idx] for n in (1, 2)]
                                if e.get('stages') else [raw_h, np.asarray(rec['heading'])[idx]])
             heading_values, heading_limits, heading_ticks = continuous_heading_display(heading_sources)
             axes[0].plot(raw_xy[valid, 0], raw_xy[valid, 1], "k.", ms=2, label="Raw data")
@@ -104,7 +104,7 @@ def plot_reconstruction_examples(examples, output_stem, scenario_id, reference_b
                 for stage, color, label in [(stage1, "#E5B700", "After step 1"), (stage3, "blue", "After step 3")]:
                     xy = _position_in_initial_frame(stage["state"], idx, origin, initial_heading)
                     axes[0].plot(xy[:, 0], xy[:, 1], color=color, lw=.85, label=label)
-                for angles, color, label in [(heading_values[1], "#E5B700", "After step 1"), (heading_values[2], "green", "After step 2"), (heading_values[3], "blue", "After step 3")]:
+                for angles, color, label in [(heading_values[1], "#E5B700", "After step 1"), (heading_values[2], "green", "After step 2")]:
                     axes[1].plot(times, angles, color=color, lw=.85, label=label)
                 motion_series = [(stage1["motion"], "#E5B700", "After step 1"),
                                  (stage3["motion"], "blue", "After step 3")]

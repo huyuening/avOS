@@ -22,8 +22,10 @@ left of each group. Their meanings appear in the generated caption.
 
 Outputs include PDF, SVG, PNG, CSV, stage snapshots, and provenance. The style
 uses a white background, framed axes, no grid, black original observations,
-yellow Step 1, green Step 2, and blue Step 3. Heading panels show all stages,
-including final filtered heading. SG Step 3 motion panels use the saved filtered velocity and acceleration.
+yellow Step 1, green Step 2, and blue Step 3. Heading panels show Raw data, After step 1, and After step 2 only.
+Step 3 remains in position and motion panels. Step 1 fills position gaps but
+keeps missing headings as NaN; heading correction/interpolation happens in
+Step 2. Thus a missing heading can still leave a gap in Step 1 local motion. SG Step 3 motion panels use the saved filtered velocity and acceleration.
 Earlier stages derive motion from their position and heading arrays.
 
 Time axes span 0–20 s. No samples are extrapolated beyond the observation span.
