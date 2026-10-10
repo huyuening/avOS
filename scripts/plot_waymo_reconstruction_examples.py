@@ -2,7 +2,7 @@
 
 This never modifies source datasets. --export-current-stages reruns reconstruction
 with the restored velocity-reference heading correction and captures each stage.
-Motion quantities are derived identically from positions/headings for both series.
+SG Step 3 uses the saved filtered velocity and acceleration; other stages derive motion from positions/headings.
 Paper styling is the default; --style modern retains the earlier design.
 Real stage snapshots may be supplied with --stage1-root/--stage2-root/--stage3-root.
 Run in the avOS environment. All paths may be overridden on the CLI.
@@ -230,7 +230,8 @@ def load_stages(stage_roots, examples, scenario_id, raw_path, out):
                     raise ValueError(f"Stage {step} has missing/nonfinite states in the plotted interval")
                 mask = np.zeros(len(times), bool)
                 mask[idx] = True
-                motion = derived_motion(state, times, mask)[idx]
+                use_saved = step == 3 and data["extra_information"].get("reconstruction_config", {}).get("filter_method") == "sg"
+                motion = (np.column_stack((state["local_velocity"],state["local_acceleration"])) if use_saved else derived_motion(state, times, mask))[idx]
                 e.setdefault("stages", {})[step] = {"state": state, "motion": motion}
                 values = np.column_stack((idx, times[idx], state["global_center"][idx, :2], state["heading"][idx], motion))
                 np.savetxt(out / f"{e['label'].lower()}_object_{e['object_id']}_step{step}.csv", values, delimiter=",",
@@ -238,7 +239,7 @@ def load_stages(stage_roots, examples, scenario_id, raw_path, out):
     return sources
 
 
-def export_current_stages(examples, raw_path, out, cutoff_freq=None):
+def export_current_stages(examples, raw_path, out, cutoff_freq=None, filter_method="sg", sg_window_length=31, sg_polyorder=2):
     """Run the existing reconstructor with diagnostic capture, never overwrite datasets."""
     sys.path.insert(0, str(ROOT / "avos"))
     from scenario_reconstructor.object_track_reconstruction import ReconstructionConfig, reconstruct_object_state
@@ -247,9 +248,12 @@ def export_current_stages(examples, raw_path, out, cutoff_freq=None):
         source = pickle.loads(raw_path.read_bytes())
     meta = source["extra_information"]
     times = np.asarray(meta["timestamp"], float)
-    config = ReconstructionConfig(dataset="waymo-open", cutoff_freq=cutoff_freq)
+    config = ReconstructionConfig(dataset="waymo-open", cutoff_freq=cutoff_freq, filter_method=filter_method,
+                                  sg_window_length=sg_window_length, sg_polyorder=sg_polyorder)
+    if filter_method == "sg" and cutoff_freq is not None:
+        raise ValueError("--cutoff-freq applies to Butterworth only")
     nyquist = .5 / np.median(np.diff(times))
-    if not 0 < config.resolved_cutoff_freq < nyquist:
+    if filter_method == "butterworth" and not 0 < config.resolved_cutoff_freq < nyquist:
         raise ValueError(f"Cutoff frequency must be between 0 and the Nyquist frequency ({nyquist:g} Hz)")
     snapshots = {step: {"extra_information": dict(meta), "object_tracks": {},
                         "map_features": {}, "dynamic_map_states": {}} for step in (1, 2, 3)}
@@ -263,11 +267,10 @@ def export_current_stages(examples, raw_path, out, cutoff_freq=None):
         e["rec"] = result.state
         valid = np.zeros(len(times), bool)
         valid[e["indices"]] = True
-        e["rec_motion"] = derived_motion(result.state, times, valid)[e["indices"]]
+        e["rec_motion"] = (np.column_stack((result.state["local_velocity"],result.state["local_acceleration"])) if filter_method == "sg"
+                           else derived_motion(result.state, times, valid))[e["indices"]]
     roots = []
-    definitions = {1: "Interpolation: positions are interpolated; recorded headings are retained and missing headings remain NaN",
-                   2: "Heading processing: velocity-direction reference from filtered positions, low-speed fallback, threshold rejection and interpolation",
-                   3: "Trajectory processing: filtered positions and corrected headings, plus derived motion"}
+    definitions = config.stage_definitions
     for step, data in snapshots.items():
         data["extra_information"].update(diagnostic_subset=True, stage=step,
             stage_definition=definitions[step], reconstruction_config=asdict(config))
@@ -276,8 +279,8 @@ def export_current_stages(examples, raw_path, out, cutoff_freq=None):
         (root / raw_path.name).write_bytes(pickle.dumps(data, protocol=4))
         roots.append(root)
     (out / "stage_definitions.json").write_text(json.dumps({
-        "implementation": "Restored legacy batch Butterworth workflow with velocity-reference heading correction and compatibility fixes, not manuscript Savitzky-Golay",
-        "config": asdict(config), "resolved_cutoff_hz": config.resolved_cutoff_freq,
+        "implementation": config.description,
+        "config": asdict(config), "resolved_cutoff_hz": config.resolved_cutoff_freq if filter_method == "butterworth" else None,
         "sampling": "Inferred from actual timestamps", "stages": definitions}, indent=2) + "\n")
     return roots
 
@@ -294,7 +297,10 @@ def main():
     parser.add_argument("--stage2-root", type=Path)
     parser.add_argument("--stage3-root", type=Path)
     parser.add_argument("--export-current-stages", action="store_true",
-                        help="Rerun the current Butterworth pipeline and export true stage snapshots")
+                        help="Rerun the selected reconstruction pipeline and export true stage snapshots")
+    parser.add_argument("--filter-method", choices=["sg", "butterworth"], default="sg")
+    parser.add_argument("--sg-window-length", type=int, default=31)
+    parser.add_argument("--sg-polyorder", type=int, default=2)
     parser.add_argument("--cutoff-freq", type=float,
                         help="Butterworth cutoff in Hz for --export-current-stages; lower values smooth more strongly")
     parser.add_argument("--reference-bounds-json", type=Path, help="Optional explicitly specified acceleration reference lines")
@@ -311,7 +317,7 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     paths, examples = load_pair(args.raw_root, args.reconstructed_root, args.scenario_id, args.object_ids)
     if args.export_current_stages:
-        stage_roots = export_current_stages(examples, paths[0], args.output_dir, args.cutoff_freq)
+        stage_roots = export_current_stages(examples, paths[0], args.output_dir, args.cutoff_freq, args.filter_method, args.sg_window_length, args.sg_polyorder)
         paths[1] = stage_roots[2] / paths[0].name
     export_data(paths, examples, args.output_dir, args.scenario_id)
     stage_sources = load_stages(stage_roots, examples, args.scenario_id, paths[0], args.output_dir) if all(stage_roots) else []
@@ -320,7 +326,7 @@ def main():
         sys.path.insert(0, str(ROOT / "avos"))
         from scenario_reconstructor.visualization import plot_reconstruction_examples
         fig = plot_reconstruction_examples(examples, args.output_dir / "waymo_reconstruction_paper_style", args.scenario_id, bounds,
-                                           current_pipeline_note=args.export_current_stages)
+                                           current_pipeline_note=(json.loads((args.output_dir / "stage_definitions.json").read_text())["implementation"] if args.export_current_stages else False))
         plt.close(fig)
     else:
         # The legacy plot uses the same numerical curves as before.
@@ -338,13 +344,13 @@ def main():
     if stage_sources:
         info["reconstruction"] = "Paper curves use the three explicitly supplied stage snapshot files. The script validates their scenario, timestamps and object types but does not infer or rerun their generating algorithms. Paired final-output CSV files are also retained separately."
     if args.export_current_stages:
-        info["reconstruction"] = "Rerun of current avOS reconstructor with diagnostic capture. See stage_definitions.json. This is the current Butterworth implementation, not a reproduction of the manuscript Savitzky-Golay workflow."
+        info["reconstruction"] = "Rerun of current avOS reconstructor with diagnostic capture. See stage_definitions.json. The selected filter and parameters are recorded below."
         info["reconstructor_source_sha256"] = hashlib.sha256((ROOT / "avos/scenario_reconstructor/object_track_reconstruction.py").read_bytes()).hexdigest()
         settings = json.loads((args.output_dir / "stage_definitions.json").read_text())
         info["filter_settings"] = settings
         caption_path = args.output_dir / "waymo_reconstruction_paper_style_caption.txt"
         with caption_path.open("a") as f:
-            f.write(f"\nFilter settings: fourth-order Butterworth, cutoff {settings['resolved_cutoff_hz']:g} Hz, applied with forward-backward filtering.\n")
+            f.write("\nFilter settings: " + settings["implementation"] + "\n")
     provenance_path.write_text(json.dumps(info, indent=2) + "\n")
     print(args.output_dir)
 

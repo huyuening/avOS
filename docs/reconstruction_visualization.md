@@ -1,15 +1,16 @@
 # Reconstruction visualization
 
 The implementation is described in [trajectory reconstruction](trajectory_reconstruction.md).
-The current workflow uses velocity-reference heading correction and Butterworth
-filtering. It is not a numerical reproduction of the manuscript's separate
-Savitzky–Golay workflow.
+The default is the full legacy Savitzky–Golay workflow (31 samples, order 2),
+including heading correction, velocity filtering, and position reintegration.
+Butterworth remains an explicit alternative. Compatibility adaptations and
+low-speed heading limitations are recorded in the method documentation.
 
 ## Three-example figure
 
 ```sh
 python scripts/plot_waymo_reconstruction_examples.py \
-  --export-current-stages --cutoff-freq 0.5 \
+  --export-current-stages --filter-method sg \
   --output-dir output/waymo-reconstruction-figure
 ```
 
@@ -22,8 +23,8 @@ left of each group. Their meanings appear in the generated caption.
 Outputs include PDF, SVG, PNG, CSV, stage snapshots, and provenance. The style
 uses a white background, framed axes, no grid, black original observations,
 yellow Step 1, green Step 2, and blue Step 3. Heading panels show all stages,
-including final filtered heading. Motion panels derive values from the relevant
-stage's positions and heading, rather than placeholder motion fields.
+including final filtered heading. SG Step 3 motion panels use the saved filtered velocity and acceleration.
+Earlier stages derive motion from their position and heading arrays.
 
 Time axes span 0–20 s. No samples are extrapolated beyond the observation span.
 The plot origin and orientation come from the first valid raw observation and
@@ -50,7 +51,7 @@ and pickle files.
 
 ```sh
 python scripts/reconstruct_waymo_catalog.py \
-  --cutoff-freq 0.5 --output-dir output/waymo-catalog
+  --filter-method sg --output-dir output/waymo-catalog
 ```
 
 Open `gallery/index.html` in the output folder. Filter by type, scene, or object,
@@ -70,7 +71,7 @@ To update the same selected objects after changing the reconstruction:
 ```sh
 python scripts/reconstruct_waymo_catalog.py \
   --selection-index output/previous-selection/trajectory_index.json \
-  --cutoff-freq 0.5 --output-dir output/refreshed-selection
+  --filter-method sg --output-dir output/refreshed-selection
 ```
 
 The output directory must be new. Selection ranks are preserved; objects are

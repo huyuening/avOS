@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Iterable
@@ -37,6 +37,9 @@ class ReconstructionTask:
     cutoff_freq: float | None
     min_valid_frames: int
     max_speed_mps: float
+    filter_method: str = "sg"
+    sg_window_length: int = 31
+    sg_polyorder: int = 2
 
 
 @dataclass
@@ -94,6 +97,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Number of worker processes. Recommended: 8. Use 1 for easier debugging.",
     )
+    parser.add_argument("--filter-method", choices=["sg", "butterworth"], default="sg")
+    parser.add_argument("--sg-window-length", type=int, default=31)
+    parser.add_argument("--sg-polyorder", type=int, default=2)
     parser.add_argument(
         "--cutoff_freq",
         type=float,
@@ -185,6 +191,9 @@ def build_tasks(args: argparse.Namespace, input_dir: Path, output_dir: Path) -> 
                 cutoff_freq=args.cutoff_freq,
                 min_valid_frames=max(1, args.min_valid_frames),
                 max_speed_mps=args.max_speed_mps,
+                filter_method=args.filter_method,
+                sg_window_length=args.sg_window_length,
+                sg_polyorder=args.sg_polyorder,
             )
         )
     return tasks
@@ -222,6 +231,9 @@ def process_scenario(task: ReconstructionTask) -> ScenarioStats:
         sampling_rate=sampling_rate,
         min_valid_frames=task.min_valid_frames,
         max_speed_mps=task.max_speed_mps,
+        filter_method=task.filter_method,
+        sg_window_length=task.sg_window_length,
+        sg_polyorder=task.sg_polyorder,
     )
 
     stats = ScenarioStats(scenario_id=task.input_path.stem)
@@ -242,6 +254,8 @@ def process_scenario(task: ReconstructionTask) -> ScenarioStats:
         else:
             stats.tracks_skipped += 1
 
+    scenario.setdefault("extra_information", {})["reconstruction_provenance"] = {
+        "config": asdict(config), "implementation": config.description}
     task.output_path.parent.mkdir(parents=True, exist_ok=True)
     write_pickle(task.output_path, scenario)
     return stats

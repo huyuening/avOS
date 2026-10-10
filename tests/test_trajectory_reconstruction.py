@@ -6,7 +6,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'avos'))
 from scenario_reconstructor.object_track_reconstruction import (
     ReconstructionConfig, reconstruct_object_state, correct_heading,
-    calculate_reference_heading,
+    calculate_reference_heading, _savgol_filter,
 )
 
 
@@ -44,7 +44,7 @@ class ReconstructionTests(unittest.TestCase):
 
     def test_stationary_fallback_does_not_align_to_position_noise(self):
         t,s=track(speed=.1,direction=1.2);s['heading'][:]=-.8
-        r=reconstruct_object_state(s,t,ReconstructionConfig('waymo-open'))
+        r=reconstruct_object_state(s,t,ReconstructionConfig('waymo-open',filter_method='butterworth'))
         self.assertFalse(r.heading_outlier_mask.any());np.testing.assert_allclose(r.state['heading'],-.8,atol=1e-8)
 
     def test_angle_wrap_is_not_rejected(self):
@@ -81,5 +81,30 @@ class ReconstructionTests(unittest.TestCase):
         for k in s:np.testing.assert_array_equal(s[k],saved[k])
         captured.stage_states[1]['global_center'][0,0]=-999
         self.assertNotEqual(s['global_center'][0,0],-999);self.assertNotEqual(captured.state['global_center'][0,0],-999)
+
+class SavitzkyGolayTests(unittest.TestCase):
+    def test_quadratic_preserved_and_short_window_supported(self):
+        for n in [2, 7, 30, 31, 80]:
+            x=np.arange(n,dtype=float);y=.01*x*x+.2*x+1
+            np.testing.assert_allclose(_savgol_filter(y),y,atol=1e-10)
+
+    def test_sg_reintegration_preserves_filtered_position_endpoints(self):
+        t,s=track();s['global_center'][:,1]+=.05*np.sin(2*t)
+        r=reconstruct_object_state(s,t,ReconstructionConfig('waymo-open'),capture_stages=True)
+        for axis in [0,1]:
+            expected=_savgol_filter(s['global_center'][:,axis])[[0,-1]]
+            np.testing.assert_allclose(r.state['global_center'][[0,-1],axis],expected,atol=1e-10)
+        self.assertEqual(r.diagnostics['sg_effective_window'],31)
+        self.assertEqual(r.diagnostics['reference_low_speed_fraction'],0.)
+
+    def test_sg_low_speed_is_reported_not_hidden(self):
+        t,s=track(speed=.1)
+        r=reconstruct_object_state(s,t,ReconstructionConfig('waymo-open'))
+        self.assertEqual(r.diagnostics['reference_low_speed_fraction'],1.)
+        self.assertTrue(r.reconstructed)
+
+    def test_invalid_sg_configuration_rejected(self):
+        for kwargs in [dict(sg_window_length=30),dict(sg_polyorder=31),dict(filter_method='unknown')]:
+            with self.assertRaises(ValueError):ReconstructionConfig('waymo-open',**kwargs)
 
 if __name__=='__main__':unittest.main()

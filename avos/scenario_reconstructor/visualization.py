@@ -189,7 +189,7 @@ def plot_reconstruction_examples(examples, output_stem, scenario_id, reference_b
                    "Position is expressed in the initial object frame. Fixed engineering reference ranges are used for motion quantities, "
                    "and portions exceeding these ranges are clipped only in the display; the underlying data are retained.")
         if current_pipeline_note:
-            caption += " The plotted results use the current repository's Butterworth implementation, which differs from the Savitzky-Golay filter described in the manuscript."
+            caption += " Implementation: " + str(current_pipeline_note) + "."
         caption += "\n\nSource: scenario " + scenario_id + "; " + ", ".join(
             f"({chr(97+i)}) object {e['object_id']}" for i, e in enumerate(examples)) + ".\n"
         stem.with_name(stem.name + "_caption.txt").write_text(caption)

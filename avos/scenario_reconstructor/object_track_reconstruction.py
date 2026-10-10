@@ -30,8 +30,36 @@ class ReconstructionConfig:
     min_valid_frames: int = 2
     max_speed_mps: float = 80.0
     filter_order: int = 4
+    filter_method: str = "sg"
+    sg_window_length: int = 31
+    sg_polyorder: int = 2
     heading_reference_min_speed_mps: float = 1.0
     heading_tolerance_rad: float = 0.1 * np.pi
+
+    def __post_init__(self):
+        if self.filter_method not in {"sg", "butterworth"}:
+            raise ValueError("filter_method must be sg or butterworth")
+        if self.sg_window_length < 3 or self.sg_window_length % 2 != 1:
+            raise ValueError("SG window length must be odd and at least 3")
+        if not 0 <= self.sg_polyorder < self.sg_window_length:
+            raise ValueError("SG polyorder must be smaller than the window length")
+
+    @property
+    def description(self):
+        if self.filter_method == "sg":
+            return (f"Savitzky-Golay legacy workflow, window {self.sg_window_length}, "
+                    f"polynomial order {self.sg_polyorder}, velocity filtering and endpoint-constrained reintegration; adapted-v1")
+        return "Butterworth with velocity-reference heading correction, adapted-v1"
+
+    @property
+    def stage_definitions(self):
+        return {
+            1: "Position interpolation; original headings retained, missing headings NaN",
+            2: ("Heading correction against interpolated-position velocity direction" if self.filter_method == "sg"
+                else "Heading correction against filtered-position velocity direction with low-speed fallback"),
+            3: ("SG position filtering, renewed heading correction and SG heading filtering, SG velocity filtering and endpoint-constrained reintegration"
+                if self.filter_method == "sg" else "Butterworth positions and corrected headings, derived motion"),
+        }
 
     @property
     def resolved_cutoff_freq(self) -> float:
@@ -48,6 +76,7 @@ class TrackReconstructionResult:
     filled_samples: int = 0
     stage_states: dict[int, dict] | None = None
     heading_outlier_mask: np.ndarray | None = None
+    diagnostics: dict | None = None
 
 
 def reconstruct_object_state(
@@ -98,46 +127,57 @@ def reconstruct_object_state(
         stage_states[1] = _diagnostic_snapshot(
             state, segment_indices, filled_center, raw_segment_heading, timestamp,
         )
-    # The legacy batch workflow forward-fills missing headings before deriving
-    # a reference from the filtered positions. Zero is a valid angle here.
-    filled_heading = _forward_fill_heading(heading, valid_segment_indices, segment_indices)
-    filled_center, filled_heading = _repair_speed_outliers(
-        filled_center, filled_heading, timestamp[segment_indices], config,
-    )
+    diagnostics = {}
+    if config.filter_method == "sg":
+        (smoothed_center, smoothed_heading, local_velocity, local_acceleration,
+         corrected_heading, rejected, diagnostics) = _sg_reconstruct_segment(
+            filled_center, heading[segment_indices], segment_valid,
+            timestamp[segment_indices], config)
+        if capture_stages:
+            stage_states[2] = _diagnostic_snapshot(
+                state, segment_indices, filled_center, corrected_heading, timestamp)
+    else:
+        # The legacy batch workflow forward-fills missing headings before deriving
+        # a reference from the filtered positions. Zero is a valid angle here.
+        filled_heading = _forward_fill_heading(heading, valid_segment_indices, segment_indices)
+        filled_center, filled_heading = _repair_speed_outliers(
+            filled_center, filled_heading, timestamp[segment_indices], config,
+        )
 
-    sampling_rate = _sampling_rate(timestamp[segment_indices], config.sampling_rate)
-    cutoff_freq = config.resolved_cutoff_freq
-    smoothed_center = np.column_stack(
-        (
-            _butterworth_filter(filled_center[:, 0], cutoff_freq, sampling_rate, config.filter_order),
-            _butterworth_filter(filled_center[:, 1], cutoff_freq, sampling_rate, config.filter_order),
-            _butterworth_filter(filled_center[:, 2], cutoff_freq, sampling_rate, config.filter_order),
+        sampling_rate = _sampling_rate(timestamp[segment_indices], config.sampling_rate)
+        cutoff_freq = config.resolved_cutoff_freq
+        smoothed_center = np.column_stack(
+            (
+                _butterworth_filter(filled_center[:, 0], cutoff_freq, sampling_rate, config.filter_order),
+                _butterworth_filter(filled_center[:, 1], cutoff_freq, sampling_rate, config.filter_order),
+                _butterworth_filter(filled_center[:, 2], cutoff_freq, sampling_rate, config.filter_order),
+            )
         )
-    )
-    reference_heading, moving = calculate_reference_heading(
-        timestamp[segment_indices], smoothed_center[:, :2], filled_heading,
-        config.heading_reference_min_speed_mps,
-    )
-    corrected_heading, rejected = correct_heading(
-        filled_heading, reference_heading, timestamp[segment_indices],
-        config.heading_tolerance_rad, moving,
-    )
-    if capture_stages:
-        stage_states[2] = _diagnostic_snapshot(
-            state, segment_indices, filled_center, corrected_heading, timestamp,
+        reference_heading, moving = calculate_reference_heading(
+            timestamp[segment_indices], smoothed_center[:, :2], filled_heading,
+            config.heading_reference_min_speed_mps,
         )
-    smoothed_heading = _normalize_angle(
-        _butterworth_filter(corrected_heading, cutoff_freq, sampling_rate, config.filter_order)
-    )
+        corrected_heading, rejected = correct_heading(
+            filled_heading, reference_heading, timestamp[segment_indices],
+            config.heading_tolerance_rad, moving,
+        )
+        if capture_stages:
+            stage_states[2] = _diagnostic_snapshot(
+                state, segment_indices, filled_center, corrected_heading, timestamp,
+            )
+        smoothed_heading = _normalize_angle(
+            _butterworth_filter(corrected_heading, cutoff_freq, sampling_rate, config.filter_order)
+        )
+
+        local_velocity, local_acceleration = _motion_from_position(
+            timestamp[segment_indices],
+            smoothed_center[:, 0],
+            smoothed_center[:, 1],
+            smoothed_heading,
+        )
+
     heading_outlier_mask = np.zeros(len(timestamp), dtype=bool)
     heading_outlier_mask[segment_indices] = rejected
-
-    local_velocity, local_acceleration = _motion_from_position(
-        timestamp[segment_indices],
-        smoothed_center[:, 0],
-        smoothed_center[:, 1],
-        smoothed_heading,
-    )
 
     state["global_center"] = _as_2d_array(state.get("global_center"), len(timestamp), 3, fill=0.0)
     state["local_velocity"] = _as_2d_array(state.get("local_velocity"), len(timestamp), 2, fill=0.0)
@@ -158,19 +198,14 @@ def reconstruct_object_state(
         stage_states[3] = _copy_state(state)
     return TrackReconstructionResult(state=state, reconstructed=True,
                                      filled_samples=filled_samples, stage_states=stage_states,
-                                     heading_outlier_mask=heading_outlier_mask)
+                                     heading_outlier_mask=heading_outlier_mask, diagnostics=diagnostics)
 
 
 def _diagnostic_snapshot(state, indices, center, heading, timestamp):
-    """Copy actual intermediate position/heading arrays without changing the run.
+    """Copy intermediate position/heading arrays; derive inspection motion only.
 
-    Motion fields are derived for inspection only. Step 1 is position
-    interpolation, with original headings retained and missing headings NaN.
-    Step 2 uses the velocity direction of filtered positions to identify and
-    interpolate heading outliers. Step 3 stores filtered positions/headings
-    and their derived motion. Position filtering is also used internally to
-    construct the Step 2 reference, as in the legacy batch implementation.
-    The underlying filter differs from the manuscript's SG workflow.
+    The method-specific stage definitions are exposed by ReconstructionConfig.
+    Step 3 is captured separately from the actual final saved state.
     """
     snapshot = _copy_state(state)
     n = len(timestamp)
@@ -284,7 +319,7 @@ def calculate_reference_heading(timestamp, center_xy, heading, min_speed_mps=1.0
 
 
 def correct_heading(heading, reference, timestamp, tolerance_rad=0.1 * np.pi,
-                    moving=None):
+                    moving=None, observed=None):
     """Restore legacy threshold rejection and interpolation without zero sentinels.
 
     Accepted angles align to the reference by whole turns. Rejected interior
@@ -298,6 +333,8 @@ def correct_heading(heading, reference, timestamp, tolerance_rad=0.1 * np.pi,
     moving = np.ones(len(heading), bool) if moving is None else np.asarray(moving, bool)
     aligned = heading - np.round((heading - reference) / (2 * np.pi)) * (2 * np.pi)
     rejected = moving & (np.abs(_normalize_angle(heading - reference)) > tolerance_rad)
+    if observed is not None:
+        rejected |= ~np.asarray(observed, bool)
     anchors = np.flatnonzero(~rejected)
     result = aligned.copy()
     if not rejected.any():
@@ -315,6 +352,70 @@ def correct_heading(heading, reference, timestamp, tolerance_rad=0.1 * np.pi,
         cubic = CubicSpline(timestamp[anchors], aligned[anchors], bc_type="natural")
         result[inside] = cubic(timestamp[inside])
     return result, rejected
+
+
+
+def _savgol_filter(data, window_length=31, polyorder=2):
+    """Legacy SG settings, with a smaller odd window for short tracks."""
+    data = np.asarray(data, float)
+    window = min(window_length, len(data) if len(data) % 2 else len(data) - 1)
+    if window <= polyorder:
+        return data.copy()
+    return signal.savgol_filter(data, window, polyorder, mode="interp")
+
+
+def _sg_reintegrate(timestamp, center, velocity, heading):
+    """Legacy right-endpoint integration and linear endpoint correction.
+
+    Saved velocity is the filtered velocity used for integration, as in the
+    legacy SG source. Position endpoint correction is not folded back into it.
+    """
+    c, s = np.cos(heading), np.sin(heading)
+    global_velocity = np.column_stack((c*velocity[:, 0]-s*velocity[:, 1],
+                                      s*velocity[:, 0]+c*velocity[:, 1]))
+    xy = np.vstack((center[0, :2], center[0, :2] +
+                    np.cumsum(global_velocity[1:] * np.diff(timestamp)[:, None], axis=0)))
+    xy += np.linspace(0., 1., len(xy))[:, None] * (center[-1, :2] - xy[-1])
+    edge_order = 2 if len(timestamp) >= 3 else 1
+    acceleration = np.gradient(global_velocity, timestamp, axis=0, edge_order=edge_order)
+    local_acceleration = np.column_stack((c*acceleration[:, 0]+s*acceleration[:, 1],
+                                         -s*acceleration[:, 0]+c*acceleration[:, 1]))
+    result = center.copy()
+    result[:, :2] = xy
+    return result, local_acceleration
+
+
+def _sg_reconstruct_segment(center, heading, observed, timestamp, config):
+    """Port the full standalone SG workflow, including velocity reintegration.
+
+    Unlike the Butterworth batch source, SG has no <1 m/s heading fallback.
+    Legacy publication-example speed/distance selection is not imposed here.
+    """
+    def smooth(x):
+        return _savgol_filter(x, config.sg_window_length, config.sg_polyorder)
+    # Missing headings are not anchors; valid zero angles are anchors.
+    h = np.asarray(heading, float).copy()
+    h[~observed] = 0.
+    raw_ref, _ = calculate_reference_heading(timestamp, center[:, :2], h, 0.)
+    step2, _ = correct_heading(h, raw_ref, timestamp, config.heading_tolerance_rad,
+                              observed=observed)
+    filtered = np.column_stack([smooth(center[:, j]) for j in range(3)])
+    reference, _ = calculate_reference_heading(timestamp, filtered[:, :2], h, 0.)
+    corrected, rejected = correct_heading(h, reference, timestamp,
+                                          config.heading_tolerance_rad, observed=observed)
+    final_heading = smooth(corrected)
+    velocity, _ = _motion_from_position(timestamp, filtered[:, 0], filtered[:, 1], final_heading)
+    filtered_velocity = np.column_stack([smooth(velocity[:, j]) for j in range(2)])
+    final_center, acceleration = _sg_reintegrate(timestamp, filtered, filtered_velocity, final_heading)
+    ref_speed = np.linalg.norm(np.gradient(filtered[:, :2], timestamp, axis=0), axis=1)
+    window = min(config.sg_window_length, len(timestamp) if len(timestamp)%2 else len(timestamp)-1)
+    diagnostics = dict(sg_effective_window=window if window>config.sg_polyorder else 0,
+                       reference_low_speed_fraction=float(np.mean(ref_speed<1.)),
+                       reference_mean_speed_mps=float(np.mean(ref_speed)),
+                       heading_missing_samples=int((~observed).sum()))
+    # Count observed outliers separately from missing heading imputation.
+    return (final_center, _normalize_angle(final_heading), filtered_velocity,
+            acceleration, step2, rejected & observed, diagnostics)
 
 
 def _repair_speed_outliers(

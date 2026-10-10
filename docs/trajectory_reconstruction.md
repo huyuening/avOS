@@ -1,91 +1,105 @@
 # Trajectory reconstruction
 
-The unified reconstructor restores the heading-correction core of the legacy
-batch entry point `main.py -> utils.py::object_track_reconstruction`. That entry
-point used Butterworth filtering. The separate Savitzky–Golay implementation is
-not the implementation used here. This is a port with compatibility fixes, not a
-byte-for-byte copy of the legacy script.
+The default `sg` method ports the full legacy standalone
+`object_track_reconstruction.py` Savitzky–Golay workflow. The previous
+`main.py -> utils.py` Butterworth batch workflow remains available with
+`--filter-method butterworth`. These were different implementations, not merely
+different plotting conversions.
 
-## Processing
+## Savitzky–Golay workflow
 
-1. Use the explicit validity mask and finite position/heading observations.
-   Interpolate positions within the first and last valid observations, using
-   cubic, quadratic, or linear interpolation according to the available samples.
-   Forward-fill missing headings within that interval.
-2. Retain the unified implementation's speed-outlier repair, then filter
-   positions with a fourth-order forward-backward Butterworth filter. Compute a
-   heading reference from the instantaneous velocity direction of those filtered
-   positions. Below 1 m/s, use the recorded/filled heading as the reference.
-3. Align observed headings to the reference by integer multiples of 2π. At
-   moving samples, reject circular differences greater than 0.1π (18 degrees).
-   Reconstruct rejected internal samples with a natural cubic spline and boundary
-   samples with linear extrapolation. Two anchors use linear interpolation, one
-   uses a constant, and zero anchors fall back to the motion reference.
-4. Filter the corrected heading and derive local velocity and acceleration from
-   the filtered position and heading. Store final headings in [-π, π), while
-   plots unwrap display copies to preserve visual continuity.
+1. Interpolate positions within the first and last valid observations, using
+   cubic, quadratic, or linear interpolation according to available samples.
+   Capture these positions and the original headings as **Step 1 (yellow)**.
+2. Compute the instantaneous velocity direction from interpolated positions.
+   Align observed headings by whole turns and reject circular differences greater
+   than 0.1π (18 degrees). Interpolate the rejected or missing headings. Capture
+   this result as **Step 2 (green)**.
+3. Apply SG filtering to position, using a **31-sample window and polynomial
+   order 2**, with SciPy's `mode="interp"`. Recompute the velocity-direction
+   reference from filtered positions and repeat heading correction from the
+   original observations. SG-filter the corrected heading, derive local motion,
+   SG-filter local velocity, then integrate it using right-endpoint samples.
+   Distribute the endpoint position error linearly across the track to match
+   both filtered-position endpoints. Capture the result as **Step 3 (blue)**.
 
-The reference assumes that heading broadly follows travel direction at speeds
-of at least 1 m/s. Reverse motion, sideways movement, and noisy low-speed
-orientation need separate interpretation. An outlier flag is a heuristic, not
-independent evidence that an observed heading is incorrect.
+The saved final velocity is the filtered velocity used in integration. As in the
+legacy code, the endpoint position correction is not differentiated back into
+this velocity. Acceleration is derived from filtered global velocity and rotated
+into the object frame. The gallery and figure use these saved SG Step 3 motion
+fields; earlier stages derive motion from their position/heading arrays.
 
-## Parameters and adaptations
+Heading interpolation uses a natural cubic spline for internal gaps with at
+least three anchors and linear extrapolation at the boundaries. Two anchors use
+linear interpolation, one uses a constant, and no anchors use the motion
+reference. Final headings are stored as principal angles. Plots unwrap display
+copies and align whole-turn branches without changing saved values.
 
-`ReconstructionConfig` sets `heading_reference_min_speed_mps=1.0`,
-`heading_tolerance_rad=0.1*pi`, and `filter_order=4`. The Waymo default cutoff is
-1 Hz. The diagnostic gallery explicitly uses 0.5 Hz; it does not change the
-production default. Sampling frequency is inferred from timestamps unless set.
-Butterworth filtering assumes approximately uniform sampling.
+## Why heading can still look abnormal
 
-The port preserves the current avOS schema, track lengths, and shared scenario
-clock. It does not insert per-object timestamps or apply the legacy 5 m step
-truncation. It retains the unified speed repair (`max_speed_mps=80`) instead.
-It uses actual timestamps for heading interpolation. Zero coordinates, height,
-and heading remain valid when the validity mask says so. It uses a 2π unwrap
-period instead of the legacy second π-period unwrap, which could reverse a
-directed heading. Explicit masks replace zero sentinels, and short-anchor
-fallbacks avoid undefined interpolation. Invalid timestamps and tracks with
-fewer than two valid observations are skipped with a reason.
+The original SG workflow has no low-speed heading fallback. At small speeds,
+position noise can dominate the velocity direction. Recorded orientation can
+also contain approximately π flips, which are not equivalent 2π representation
+changes. Reference unwrapping and spline/extrapolation can then create extra
+rotation. SG smoothing cannot determine the true orientation of a stationary
+object from its position alone.
 
-The optional legacy velocity-filtering/reintegration block was disabled in the
-batch source and has not been enabled in this port.
+The original standalone script selected examples using minimum observation
+counts, proximity to the ego vehicle, and speed criteria. In particular, its
+vehicle/cyclist examples required mean speed above 5 m/s, minimum speed at least
+1 m/s, and maximum speed at most 40 m/s. Those example-selection rules are not
+applied to a request to retain all previously selected diagnostic objects.
+The gallery therefore reports the fraction of filtered-position reference
+samples below 1 m/s and flags tracks where that fraction exceeds one half.
+This diagnostic does not change reconstruction, certify heading accuracy,
+or hide a candidate. Additional low-speed or overshoot protection would be an
+explicit change to the legacy heading algorithm.
 
-## Diagnostic stages
+## Compatibility adaptations
 
-Pass `capture_stages=True` to `reconstruct_object_state` to obtain independent
-snapshots. This option does not change the final reconstruction.
+The port preserves avOS state arrays and the shared scenario clock. It does not
+insert per-object timestamps or filter out examples by ego proximity or speed.
+It accepts legal zero headings/coordinates using explicit validity masks, uses
+actual timestamps for heading interpolation, handles fewer than three anchors,
+and reduces the SG window to the largest available odd length for short tracks.
+If that window cannot support the polynomial order, filtering is bypassed.
+Fewer than two valid observations or invalid timestamps produce a skip reason.
+The legacy SG code processed x/y; the avOS port also filters z to retain its
+three-dimensional position schema. SG assumes approximately uniform sampling.
 
-- **After step 1 (yellow):** interpolated positions and original headings,
-  with missing headings left as NaN for inspection.
-- **After step 2 (green):** repaired/interpolated positions and corrected
-  headings before final heading filtering. Filtered positions are used internally
-  to construct its velocity-direction reference.
-- **After step 3 (blue):** final filtered positions/headings and derived motion.
+The full SG processing agrees with isolated legacy numerical helpers on a
+uniformly sampled moving test trajectory, including final position, heading,
+velocity, acceleration, and Step 2. The adaptations above mean this is not a
+byte-for-byte replication for every possible input.
 
-`heading_outlier_mask` identifies samples rejected by the direction comparison.
-These stage names group processing by purpose. They do not imply that position
-filtering happens only after heading correction.
+## Butterworth option
 
-## Running and checking
+The retained Butterworth variant uses filtered-position velocity as the heading
+reference and falls back to recorded/filled heading below 1 m/s. It uses
+fourth-order forward-backward filtering, with a Waymo default cutoff of 1 Hz.
+The previous 150-case gallery explicitly used 0.5 Hz. It also retains the earlier
+80 m/s step-speed repair. These cutoff/speed-repair parameters do not apply to SG.
+Butterworth does not perform the SG velocity filtering/reintegration stage.
 
-The ordinary dataset entry point uses this implementation:
+## Commands and diagnostics
 
 ```sh
-python scripts/reconstruct.py --dataset waymo-open
+python scripts/reconstruct.py --dataset waymo-open --filter-method sg
+python scripts/reconstruct.py --dataset waymo-open --filter-method butterworth --cutoff_freq 0.5
 python -m unittest discover -s tests -v
+python scripts/reconstruct_waymo_catalog.py --filter-method sg \
+  --selection-index output/previous-selection/trajectory_index.json \
+  --output-dir output/waymo-sg-gallery
 ```
 
-Build an offline diagnostic gallery in a new output directory:
+`--sg-window-length` and `--sg-polyorder` expose the SG parameters.
+Use a new output directory to preserve existing results. No cutoff frequency is
+used by SG. `capture_stages=True` returns independent stage snapshots without
+changing the result. The final-stage `heading_outlier_mask` counts rejected
+observations separately from missing headings. `diagnostics` reports effective
+SG window and reference speed statistics.
 
-```sh
-python scripts/reconstruct_waymo_catalog.py --cutoff-freq 0.5 \
-  --output-dir output/waymo-heading-restored
-```
-
-To recompute exactly the objects in an existing selection, add
-`--selection-index path/to/trajectory_index.json`. Source files are not modified.
-Selection exports are diagnostic subsets, not complete traffic scenes. The
-output includes exact pickle states, intermediate snapshots, a trajectory index,
-source hashes, parameters, and a rounded offline gallery. See
+Exports contain exact pickle states, snapshots, a rounded offline gallery,
+parameters, source hashes, and a trajectory index. Selection exports are
+incomplete diagnostic scenes, not full traffic-scene datasets. See
 [visualization instructions](reconstruction_visualization.md).
