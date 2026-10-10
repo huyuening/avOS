@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy import signal
-from scipy.interpolate import interp1d
+from scipy.interpolate import CubicSpline, interp1d
 
 
 DEFAULT_CUTOFF_FREQ = 1.0
@@ -30,6 +30,8 @@ class ReconstructionConfig:
     min_valid_frames: int = 2
     max_speed_mps: float = 80.0
     filter_order: int = 4
+    heading_reference_min_speed_mps: float = 1.0
+    heading_tolerance_rad: float = 0.1 * np.pi
 
     @property
     def resolved_cutoff_freq(self) -> float:
@@ -44,17 +46,22 @@ class TrackReconstructionResult:
     reconstructed: bool
     skipped_reason: str | None = None
     filled_samples: int = 0
+    stage_states: dict[int, dict] | None = None
+    heading_outlier_mask: np.ndarray | None = None
 
 
 def reconstruct_object_state(
     object_state: dict,
     timestamp: np.ndarray,
     config: ReconstructionConfig,
+    *,
+    capture_stages: bool = False,
 ) -> TrackReconstructionResult:
     timestamp = np.asarray(timestamp, dtype=np.float64)
     state = _copy_state(object_state)
 
-    if timestamp.ndim != 1 or len(timestamp) < 2:
+    if (timestamp.ndim != 1 or len(timestamp) < 2
+            or not np.isfinite(timestamp).all() or np.any(np.diff(timestamp) <= 0)):
         return TrackReconstructionResult(state=state, reconstructed=False, skipped_reason="invalid_timestamp")
 
     center = _get_global_center(state)
@@ -71,7 +78,7 @@ def reconstruct_object_state(
     finite_mask = np.isfinite(center[:, 0]) & np.isfinite(center[:, 1]) & np.isfinite(heading)
     valid = valid & finite_mask
     valid_indices = np.flatnonzero(valid)
-    if valid_indices.size < config.min_valid_frames:
+    if valid_indices.size < max(2, config.min_valid_frames):
         return TrackReconstructionResult(state=state, reconstructed=False, skipped_reason="not_enough_valid_frames")
 
     start_index = int(valid_indices[0])
@@ -80,16 +87,22 @@ def reconstruct_object_state(
     segment_valid = valid[segment_indices]
     valid_segment_indices = segment_indices[segment_valid]
 
-    if valid_segment_indices.size < config.min_valid_frames:
+    if valid_segment_indices.size < max(2, config.min_valid_frames):
         return TrackReconstructionResult(state=state, reconstructed=False, skipped_reason="not_enough_valid_frames")
 
     filled_center = _interpolate_center(center, valid_segment_indices, segment_indices)
-    filled_heading = _interpolate_heading(heading, valid_segment_indices, segment_indices)
+    stage_states = {} if capture_stages else None
+    if capture_stages:
+        raw_segment_heading = heading[segment_indices].copy()
+        raw_segment_heading[~segment_valid] = np.nan
+        stage_states[1] = _diagnostic_snapshot(
+            state, segment_indices, filled_center, raw_segment_heading, timestamp,
+        )
+    # The legacy batch workflow forward-fills missing headings before deriving
+    # a reference from the filtered positions. Zero is a valid angle here.
+    filled_heading = _forward_fill_heading(heading, valid_segment_indices, segment_indices)
     filled_center, filled_heading = _repair_speed_outliers(
-        filled_center,
-        filled_heading,
-        timestamp[segment_indices],
-        config,
+        filled_center, filled_heading, timestamp[segment_indices], config,
     )
 
     sampling_rate = _sampling_rate(timestamp[segment_indices], config.sampling_rate)
@@ -101,9 +114,23 @@ def reconstruct_object_state(
             _butterworth_filter(filled_center[:, 2], cutoff_freq, sampling_rate, config.filter_order),
         )
     )
-    smoothed_heading = _normalize_angle(
-        _butterworth_filter(np.unwrap(filled_heading), cutoff_freq, sampling_rate, config.filter_order)
+    reference_heading, moving = calculate_reference_heading(
+        timestamp[segment_indices], smoothed_center[:, :2], filled_heading,
+        config.heading_reference_min_speed_mps,
     )
+    corrected_heading, rejected = correct_heading(
+        filled_heading, reference_heading, timestamp[segment_indices],
+        config.heading_tolerance_rad, moving,
+    )
+    if capture_stages:
+        stage_states[2] = _diagnostic_snapshot(
+            state, segment_indices, filled_center, corrected_heading, timestamp,
+        )
+    smoothed_heading = _normalize_angle(
+        _butterworth_filter(corrected_heading, cutoff_freq, sampling_rate, config.filter_order)
+    )
+    heading_outlier_mask = np.zeros(len(timestamp), dtype=bool)
+    heading_outlier_mask[segment_indices] = rejected
 
     local_velocity, local_acceleration = _motion_from_position(
         timestamp[segment_indices],
@@ -127,7 +154,38 @@ def reconstruct_object_state(
     state["valid"][segment_indices] = True
 
     filled_samples = int((~segment_valid).sum())
-    return TrackReconstructionResult(state=state, reconstructed=True, filled_samples=filled_samples)
+    if capture_stages:
+        stage_states[3] = _copy_state(state)
+    return TrackReconstructionResult(state=state, reconstructed=True,
+                                     filled_samples=filled_samples, stage_states=stage_states,
+                                     heading_outlier_mask=heading_outlier_mask)
+
+
+def _diagnostic_snapshot(state, indices, center, heading, timestamp):
+    """Copy actual intermediate position/heading arrays without changing the run.
+
+    Motion fields are derived for inspection only. Step 1 is position
+    interpolation, with original headings retained and missing headings NaN.
+    Step 2 uses the velocity direction of filtered positions to identify and
+    interpolate heading outliers. Step 3 stores filtered positions/headings
+    and their derived motion. Position filtering is also used internally to
+    construct the Step 2 reference, as in the legacy batch implementation.
+    The underlying filter differs from the manuscript's SG workflow.
+    """
+    snapshot = _copy_state(state)
+    n = len(timestamp)
+    snapshot["global_center"] = _as_2d_array(snapshot.get("global_center"), n, 3, fill=0.)
+    snapshot["heading"] = _as_1d_array(snapshot.get("heading"), n, float, fill=0.)
+    snapshot["valid"] = _as_1d_array(snapshot.get("valid"), n, bool, fill=False)
+    snapshot["local_velocity"] = _as_2d_array(snapshot.get("local_velocity"), n, 2, fill=0.)
+    snapshot["local_acceleration"] = _as_2d_array(snapshot.get("local_acceleration"), n, 2, fill=0.)
+    snapshot["global_center"][indices] = center
+    snapshot["heading"][indices] = heading
+    snapshot["valid"][indices] = True
+    velocity, acceleration = _motion_from_position(timestamp[indices], center[:, 0], center[:, 1], heading)
+    snapshot["local_velocity"][indices] = velocity
+    snapshot["local_acceleration"][indices] = acceleration
+    return snapshot
 
 
 def _copy_state(state: dict) -> dict:
@@ -206,10 +264,57 @@ def _interpolation_kind(num_points: int) -> str:
     return "linear"
 
 
-def _interpolate_heading(heading: np.ndarray, valid_indices: np.ndarray, segment_indices: np.ndarray) -> np.ndarray:
-    unwrapped = np.unwrap(heading[valid_indices])
-    interpolated = np.interp(segment_indices, valid_indices, unwrapped)
-    return _normalize_angle(interpolated)
+def _forward_fill_heading(heading, valid_indices, segment_indices):
+    source = np.searchsorted(valid_indices, segment_indices, side="right") - 1
+    return np.unwrap(np.asarray(heading, float)[valid_indices[source]])
+
+
+def calculate_reference_heading(timestamp, center_xy, heading, min_speed_mps=1.0):
+    """Legacy velocity-direction reference with a low-speed fallback.
+
+    Headings are directed angles, so unwrap with a 2*pi period. The legacy
+    helper's second, pi-period unwrap can introduce a 180-degree flip.
+    """
+    velocity = np.gradient(center_xy, timestamp, axis=0)
+    speed = np.linalg.norm(velocity, axis=1)
+    moving = speed >= min_speed_mps
+    reference = np.unwrap(np.arctan2(velocity[:, 1], velocity[:, 0]))
+    reference[~moving] = np.asarray(heading)[~moving]
+    return np.unwrap(reference), moving
+
+
+def correct_heading(heading, reference, timestamp, tolerance_rad=0.1 * np.pi,
+                    moving=None):
+    """Restore legacy threshold rejection and interpolation without zero sentinels.
+
+    Accepted angles align to the reference by whole turns. Rejected interior
+    samples use a natural cubic spline (three or more anchors); boundaries
+    use linear extrapolation. With two anchors use linear interpolation,
+    with one use its value, and with none use the motion reference.
+    """
+    heading = np.asarray(heading, dtype=float)
+    reference = np.asarray(reference, dtype=float)
+    timestamp = np.asarray(timestamp, dtype=float)
+    moving = np.ones(len(heading), bool) if moving is None else np.asarray(moving, bool)
+    aligned = heading - np.round((heading - reference) / (2 * np.pi)) * (2 * np.pi)
+    rejected = moving & (np.abs(_normalize_angle(heading - reference)) > tolerance_rad)
+    anchors = np.flatnonzero(~rejected)
+    result = aligned.copy()
+    if not rejected.any():
+        return result, rejected
+    if len(anchors) == 0:
+        return reference.copy(), rejected
+    if len(anchors) == 1:
+        result[rejected] = aligned[anchors[0]]
+        return result, rejected
+    linear = interp1d(timestamp[anchors], aligned[anchors], kind="linear",
+                      bounds_error=False, fill_value="extrapolate")
+    result[rejected] = linear(timestamp[rejected])
+    if len(anchors) >= 3:
+        inside = rejected & (timestamp > timestamp[anchors[0]]) & (timestamp < timestamp[anchors[-1]])
+        cubic = CubicSpline(timestamp[anchors], aligned[anchors], bc_type="natural")
+        result[inside] = cubic(timestamp[inside])
+    return result, rejected
 
 
 def _repair_speed_outliers(
@@ -235,7 +340,7 @@ def _repair_speed_outliers(
     keep[np.clip(bad_steps + 1, 0, len(center) - 1)] = False
     keep[0] = True
     keep[-1] = True
-    if keep.sum() < config.min_valid_frames:
+    if keep.sum() < max(2, config.min_valid_frames):
         return center, heading
 
     indices = np.arange(len(center))

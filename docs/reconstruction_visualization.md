@@ -1,0 +1,78 @@
+# Reconstruction visualization
+
+The implementation is described in [trajectory reconstruction](trajectory_reconstruction.md).
+The current workflow uses velocity-reference heading correction and Butterworth
+filtering. It is not a numerical reproduction of the manuscript's separate
+Savitzky–Golay workflow.
+
+## Three-example figure
+
+```sh
+python scripts/plot_waymo_reconstruction_examples.py \
+  --export-current-stages --cutoff-freq 0.5 \
+  --output-dir output/waymo-reconstruction-figure
+```
+
+The default example uses Waymo scenario `104202f4f2590dff`, with vehicle 1,
+cyclist 197, and pedestrian 158. Override these using `--scenario-id` and
+`--object-ids` (vehicle, cyclist, pedestrian order). Each example has a 2×3 grid;
+three examples are stacked vertically. Labels a, b, and c sit outside the top
+left of each group. Their meanings appear in the generated caption.
+
+Outputs include PDF, SVG, PNG, CSV, stage snapshots, and provenance. The style
+uses a white background, framed axes, no grid, black original observations,
+yellow Step 1, green Step 2, and blue Step 3. Heading panels show all stages,
+including final filtered heading. Motion panels derive values from the relevant
+stage's positions and heading, rather than placeholder motion fields.
+
+Time axes span 0–20 s. No samples are extrapolated beyond the observation span.
+The plot origin and orientation come from the first valid raw observation and
+are shared by every stage. Position axes use equal aspect. Y-axis label anchors
+are aligned by column.
+
+| Quantity | Default display range |
+|---|---|
+| Heading | A movable 2π-wide window; numeric ticks every 1.5 rad |
+| Longitudinal velocity | 0 to 20 m/s |
+| Lateral velocity | −5 to 5 m/s |
+| Longitudinal acceleration | −8 to 6 m/s² |
+| Lateral acceleration | −4 to 4 m/s² |
+| Relative longitudinal position | −10 to 150 m |
+| Relative lateral position | −40 to 40 m |
+
+Heading display copies are unwrapped and aligned to the same branch using
+integer multiples of 2π, preserving missing samples. This does not change saved
+states, velocity, or acceleration. The bounds are display choices, not physical
+constraints imposed by the reconstruction. Out-of-range values remain in CSV
+and pickle files.
+
+## Offline selection gallery
+
+```sh
+python scripts/reconstruct_waymo_catalog.py \
+  --cutoff-freq 0.5 --output-dir output/waymo-catalog
+```
+
+Open `gallery/index.html` in the output folder. Filter by type, scene, or object,
+select one example per type, and export the selection JSON. Full-range mode
+reveals curves outside the standard bounds. Headings spanning more than 2π
+produce a notice rather than changing the underlying data.
+
+`scripts/select_waymo_anomalies.py` selects 50 candidates per type using equal
+weights on within-type percentiles of missing fraction, circular angular-speed
+P99, acceleration-magnitude P99, and jerk-magnitude P99. Metrics are calculated
+from full-precision raw data. A 2π representation jump is not counted as extreme
+angular speed. This is a browsing heuristic, not a trajectory-quality benchmark.
+The local sample contains only 50 cyclists, so all are retained.
+
+To update the same selected objects after changing the reconstruction:
+
+```sh
+python scripts/reconstruct_waymo_catalog.py \
+  --selection-index output/previous-selection/trajectory_index.json \
+  --cutoff-freq 0.5 --output-dir output/refreshed-selection
+```
+
+The output directory must be new. Selection ranks are preserved; objects are
+not reranked using the new reconstruction. Exact output states remain local and
+are not needed in the source-code repository.

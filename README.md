@@ -104,6 +104,11 @@ dataset/converted-dataset/<dataset>/<scenario_id>.pkl
   -> dataset/reconstructed_dataset/<dataset>/<scenario_id>.pkl
 ```
 
+The reconstructor uses filtered velocity directions to detect heading outliers,
+interpolates the rejected headings, and applies Butterworth filtering. See
+[the processing steps and compatibility notes](docs/trajectory_reconstruction.md)
+and [diagnostic visualization](docs/reconstruction_visualization.md).
+
 Reconstructing a full converted dataset can also be time-consuming. Use as many
 `num_workers` as your machine can stably support.
 
