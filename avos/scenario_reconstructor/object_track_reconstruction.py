@@ -48,7 +48,7 @@ class ReconstructionConfig:
     def description(self):
         if self.filter_method == "sg":
             return (f"Savitzky-Golay legacy workflow, window {self.sg_window_length}, "
-                    f"polynomial order {self.sg_polyorder}, velocity filtering and endpoint-constrained reintegration; adapted-v1")
+                    f"polynomial order {self.sg_polyorder}, original heading interpolation, velocity filtering and endpoint-constrained reintegration; schema port")
         return "Butterworth with velocity-reference heading correction, adapted-v1"
 
     @property
@@ -107,7 +107,8 @@ def reconstruct_object_state(
     finite_mask = np.isfinite(center[:, 0]) & np.isfinite(center[:, 1]) & np.isfinite(heading)
     valid = valid & finite_mask
     valid_indices = np.flatnonzero(valid)
-    if valid_indices.size < max(2, config.min_valid_frames):
+    required_frames = max(40 if config.filter_method == "sg" else 2, config.min_valid_frames)
+    if valid_indices.size < required_frames:
         return TrackReconstructionResult(state=state, reconstructed=False, skipped_reason="not_enough_valid_frames")
 
     start_index = int(valid_indices[0])
@@ -116,7 +117,7 @@ def reconstruct_object_state(
     segment_valid = valid[segment_indices]
     valid_segment_indices = segment_indices[segment_valid]
 
-    if valid_segment_indices.size < max(2, config.min_valid_frames):
+    if valid_segment_indices.size < required_frames:
         return TrackReconstructionResult(state=state, reconstructed=False, skipped_reason="not_enough_valid_frames")
 
     filled_center = _interpolate_center(center, valid_segment_indices, segment_indices)
@@ -385,6 +386,33 @@ def _sg_reintegrate(timestamp, center, velocity, heading):
     return result, local_acceleration
 
 
+def _legacy_sg_correct_heading(heading, theta):
+    adjusted_heading = heading.copy()
+    for i in range(len(heading)):
+        if heading[i] == 0:
+            continue
+        diff = heading[i] - theta[i]
+        if np.abs(diff % (2 * np.pi)) <= 0.1 * np.pi or np.abs(diff % (2 * np.pi) - 2 * np.pi) <= 0.1 * np.pi:
+            adjustment = np.round(diff / (2 * np.pi)) * 2 * np.pi
+            adjusted_heading[i] -= adjustment
+        else:
+            adjusted_heading[i] = 0
+    missing_mask = heading == 0
+    fill_mask = adjusted_heading == 0
+    if np.any(fill_mask):
+        x_vals = np.flatnonzero(~fill_mask)
+        y_vals = adjusted_heading[~fill_mask]
+        if x_vals.size > 1 and (fill_mask[0] or fill_mask[-1]):
+            linear_interp = interp1d(x_vals, y_vals, kind='linear', fill_value='extrapolate')
+            adjusted_heading[fill_mask] = linear_interp(np.flatnonzero(fill_mask))
+        if x_vals.size > 2:
+            internal_mask = np.zeros_like(fill_mask, dtype=bool)
+            internal_mask[np.flatnonzero(fill_mask)] = (np.flatnonzero(fill_mask) > x_vals[0]) & (np.flatnonzero(fill_mask) < x_vals[-1])
+            if np.any(internal_mask):
+                cubic_interp = CubicSpline(x_vals, y_vals, bc_type='natural')
+                adjusted_heading[internal_mask] = cubic_interp(np.flatnonzero(internal_mask))
+    return adjusted_heading
+
 def _sg_reconstruct_segment(center, heading, observed, timestamp, config):
     """Port the full standalone SG workflow, including velocity reintegration.
 
@@ -393,16 +421,13 @@ def _sg_reconstruct_segment(center, heading, observed, timestamp, config):
     """
     def smooth(x):
         return _savgol_filter(x, config.sg_window_length, config.sg_polyorder)
-    # Missing headings are not anchors; valid zero angles are anchors.
     h = np.asarray(heading, float).copy()
-    h[~observed] = 0.
     raw_ref, _ = calculate_reference_heading(timestamp, center[:, :2], h, 0.)
-    step2, _ = correct_heading(h, raw_ref, timestamp, config.heading_tolerance_rad,
-                              observed=observed)
+    step2 = _legacy_sg_correct_heading(h, raw_ref)
     filtered = np.column_stack([smooth(center[:, j]) for j in range(3)])
     reference, _ = calculate_reference_heading(timestamp, filtered[:, :2], h, 0.)
-    corrected, rejected = correct_heading(h, reference, timestamp,
-                                          config.heading_tolerance_rad, observed=observed)
+    corrected = _legacy_sg_correct_heading(h, reference)
+    rejected = (h != 0.) & (np.abs(_normalize_angle(h-reference)) > .1*np.pi)
     final_heading = smooth(corrected)
     velocity, _ = _motion_from_position(timestamp, filtered[:, 0], filtered[:, 1], final_heading)
     filtered_velocity = np.column_stack([smooth(velocity[:, j]) for j in range(2)])

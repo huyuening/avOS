@@ -29,11 +29,13 @@ this velocity. Acceleration is derived from filtered global velocity and rotated
 into the object frame. The gallery and figure use these saved SG Step 3 motion
 fields; earlier stages derive motion from their position/heading arrays.
 
-Heading interpolation uses a natural cubic spline for internal gaps with at
-least three anchors and linear extrapolation at the boundaries. Two anchors use
-linear interpolation, one uses a constant, and no anchors use the motion
-reference. Final headings are stored as principal angles. Plots unwrap display
-copies and align whole-turn branches without changing saved values.
+Heading correction now retains the original SG helper exactly: the fixed 0.1π
+criterion, frame-index natural cubic interpolation, linear boundary extrapolation,
+and zero-as-missing convention. It does not add low-speed fallback, overshoot
+clipping, or the Butterworth port's sparse-anchor fallback. This also preserves
+legacy edge cases: zero headings are treated as gaps, and some underdetermined
+gaps remain zero. Final headings are stored as principal angles. Plots unwrap
+only display copies, without changing saved states.
 
 ## Why heading can still look abnormal
 
@@ -45,32 +47,39 @@ rotation. SG smoothing cannot determine the true orientation of a stationary
 object from its position alone.
 
 The original standalone script selected examples using minimum observation
-counts, proximity to the ego vehicle, and speed criteria. In particular, its
-vehicle/cyclist examples required mean speed above 5 m/s, minimum speed at least
-1 m/s, and maximum speed at most 40 m/s. Those example-selection rules are not
-applied to a request to retain all previously selected diagnostic objects.
-The gallery therefore reports the fraction of filtered-position reference
-samples below 1 m/s and flags tracks where that fraction exceeds one half.
-This diagnostic does not change reconstruction, certify heading accuracy,
-or hide a candidate. Additional low-speed or overshoot protection would be an
-explicit change to the legacy heading algorithm.
+counts, proximity to the ego vehicle, and speed criteria. The moving-example
+selector uses these original speed/length thresholds:
+
+| Type | Valid observations | Mean speed | Minimum speed | Maximum speed |
+|---|---|---|---|---|
+| Vehicle / cyclist | ≥40 | ≥5 m/s | ≥1 m/s | ≤40 m/s |
+| Pedestrian | ≥40 | ≥0.5 m/s | ≥0.1 m/s | ≤10 m/s |
+
+Speed is computed from interpolated positions using the same derivative as the
+original SG Step 2. These criteria select motion before reconstruction, not
+visually pleasing output afterward. The separate 50 m ego-distance plotting
+gate is not used for this motion-only request. Retain the highest original
+raw-data anomaly ranks, up to 50 per type. If a type has fewer eligible tracks,
+keep its actual count. Every inclusion/exclusion is recorded in an audit file.
+The 1 m/s reference-speed diagnostic remains visible; it is not an extra filter,
+particularly for pedestrians whose original minimum threshold is 0.1 m/s.
 
 ## Compatibility adaptations
 
-The port preserves avOS state arrays and the shared scenario clock. It does not
-insert per-object timestamps or filter out examples by ego proximity or speed.
-It accepts legal zero headings/coordinates using explicit validity masks, uses
-actual timestamps for heading interpolation, handles fewer than three anchors,
-and reduces the SG window to the largest available odd length for short tracks.
-If that window cannot support the polynomial order, filtering is bypassed.
-Fewer than two valid observations or invalid timestamps produce a skip reason.
-The legacy SG code processed x/y; the avOS port also filters z to retain its
-three-dimensional position schema. SG assumes approximately uniform sampling.
+The port adapts legacy x/y fields to the avOS position array and preserves the
+shared clock. The SG numerical path uses the original heading helper, requires
+at least 40 valid observations, and retains original SG parameters, velocity
+filtering, right-endpoint integration, and linear endpoint correction. No new
+heading protection has been added. Array copying, diagnostics, and principal-angle
+storage are interface changes. Z is filtered alongside x/y to retain the avOS
+three-dimensional position schema. Original valid observations supply the
+interpolation anchors; per-object timestamp insertion is not applied on the
+existing shared Waymo timeline. All selected data are approximately 10 Hz.
 
 The full SG processing agrees with isolated legacy numerical helpers on a
 uniformly sampled moving test trajectory, including final position, heading,
-velocity, acceleration, and Step 2. The adaptations above mean this is not a
-byte-for-byte replication for every possible input.
+velocity, acceleration, and Step 2. Schema adaptation is documented separately from the unchanged numerical path
+for selected, uniformly sampled x/y tracks.
 
 ## Butterworth option
 
@@ -87,8 +96,11 @@ Butterworth does not perform the SG velocity filtering/reintegration stage.
 python scripts/reconstruct.py --dataset waymo-open --filter-method sg
 python scripts/reconstruct.py --dataset waymo-open --filter-method butterworth --cutoff_freq 0.5
 python -m unittest discover -s tests -v
+python scripts/select_waymo_moving_tracks.py \
+  --ranked-index output/previous-selection/all_ranked_candidates.json \
+  --output-dir output/moving-selection
 python scripts/reconstruct_waymo_catalog.py --filter-method sg \
-  --selection-index output/previous-selection/trajectory_index.json \
+  --selection-index output/moving-selection/trajectory_index.json \
   --output-dir output/waymo-sg-gallery
 ```
 

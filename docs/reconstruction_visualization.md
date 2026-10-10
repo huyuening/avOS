@@ -77,3 +77,11 @@ python scripts/reconstruct_waymo_catalog.py \
 The output directory must be new. Selection ranks are preserved; objects are
 not reranked using the new reconstruction. Exact output states remain local and
 are not needed in the source-code repository.
+
+## Moving examples with the original SG algorithm
+
+Use `scripts/select_waymo_moving_tracks.py` to apply the original SG motion
+criteria to the full ranked raw-data index, then pass its selection index to
+`reconstruct_waymo_catalog.py --filter-method sg`. The selection audit records
+all exclusions. No low-speed or interpolation-overshoot protection is added.
+Types with fewer than 50 eligible candidates retain their actual counts.

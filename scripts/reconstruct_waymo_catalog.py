@@ -113,12 +113,14 @@ def main():
     with (out/'trajectory_index.csv').open('w',newline='') as f:
         w=csv.DictWriter(f,fieldnames=list(dict.fromkeys(k for e in index for k in e)));w.writeheader();w.writerows(index)
     (out/'gallery/catalog.js').write_text('window.CATALOG='+json.dumps(index,separators=(',',':'),allow_nan=False)+';')
-    template=(ROOT/'scripts/templates/waymo_catalog.html').read_text().replace('__METHOD_DESCRIPTION__',config.description)
+    selection_key = config.filter_method + '-' + hashlib.sha256(json.dumps(sorted((e['scenario'],e['object']) for e in index)).encode()).hexdigest()[:12]
+    template=(ROOT/'scripts/templates/waymo_catalog.html').read_text().replace('__METHOD_DESCRIPTION__',config.description).replace('__SELECTION_KEY__',selection_key)
     if selected is not None:
         assert {(e['scenario'],e['object']) for e in index}==set(selected), 'Selection objects missing from inputs'
         index.sort(key=lambda e: (['VEHICLE','CYCLIST','PEDESTRIAN'].index(e['type']),e.get('anomaly_rank',0)))
         (out/'gallery/catalog.js').write_text('window.CATALOG='+json.dumps(index,separators=(',',':'),allow_nan=False)+';')
-        template=template.replace('浏览全部本地 Waymo 轨迹。',f'保持原选中的 {len(index)} 条轨迹，已使用恢复朝向校正的新方法重构。').replace('全部轨迹</option>','全部入选轨迹</option>')
+        intro = (f'按原 SG 速度与长度条件筛选的 {len(index)} 条运动轨迹。车辆/骑行者平均速度 ≥5 m/s、最低 ≥1 m/s；行人平均 ≥0.5 m/s、最低 ≥0.1 m/s。各保留最多 50 条，不足则保留实际数量。' if all(e.get('sg_eligible') for e in index) else f'保持原选中的 {len(index)} 条轨迹，已使用当前方法重构。')
+        template=template.replace('浏览全部本地 Waymo 轨迹。',intro).replace('全部轨迹</option>','全部入选轨迹</option>')
     (out/'gallery/index.html').write_text(template)
     (out/'README.md').write_text(f'''# Waymo 全部轨迹重构与选图
 
@@ -131,7 +133,7 @@ def main():
 - trajectory_index.csv/json：完整轨迹索引。
 - gallery/data/：六位小数的浏览数据。pickle 保留计算精度。
 
-当前方法：{config.description}。阶段定义见 summary.json。SG 版 Step 2 基于插值位置的速度方向修正朝向，Step 3 基于 SG 位置重新修正朝向、平滑朝向和速度，并再积分位置。SG 最终运动图使用保存的滤波速度/加速度。源数据及旧结果未覆盖。低速对象的速度方向可能不可靠，原 SG 示例筛选条件没有用于删除本次候选。
+当前方法：{config.description}。阶段定义见 summary.json。SG 版 Step 2 基于插值位置的速度方向修正朝向，Step 3 基于 SG 位置重新修正朝向、平滑朝向和速度，并再积分位置。SG 最终运动图使用保存的滤波速度/加速度。源数据及旧结果未覆盖。筛选依据见 selection-index 及选轨脚本。低速对象的速度方向可能不可靠，没有对重构朝向额外限幅。
 
 显示时间轴 0–20 s，短轨迹仅显示已有区间。朝向仅在显示时连续展开，每条轨迹使用可移动的 2π 宽窗口，数字刻度间隔 1.5 rad。固定工程显示范围会裁切超范围曲线，但不更改数据。“查看完整范围”仅供选图检查。
 ''')
