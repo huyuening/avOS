@@ -35,7 +35,7 @@ are aligned by column.
 
 | Quantity | Default display range |
 |---|---|
-| Heading | A movable 2π-wide window; numeric ticks every 1.5 rad |
+| Heading | All stored values visible; numeric radian ticks |
 | Longitudinal velocity | 0 to 20 m/s |
 | Lateral velocity | −5 to 5 m/s |
 | Longitudinal acceleration | −8 to 6 m/s² |
@@ -43,11 +43,11 @@ are aligned by column.
 | Relative longitudinal position | −10 to 150 m |
 | Relative lateral position | −40 to 40 m |
 
-Heading display copies are unwrapped and aligned to the same branch using
-integer multiples of 2π, preserving missing samples. This does not change saved
-states, velocity, or acceleration. The bounds are display choices, not physical
-constraints imposed by the reconstruction. Out-of-range values remain in CSV
-and pickle files.
+Heading values are copied without unwrapping, normalization, or branch alignment.
+Numerical jumps (including approximately 2π jumps) remain visible. Missing values
+stay missing. Heading limits cover all displayed values with padding, with at
+least a 2π-wide window. Other physical quantities retain the standard bounds.
+No saved states or reconstructed motion are changed by these display choices.
 
 ## Offline selection gallery
 
@@ -58,8 +58,7 @@ python tools/reconstruction/reconstruct_waymo_catalog.py \
 
 Open `gallery/index.html` in the output folder. Filter by type, scene, or object,
 select one example per type, and export the selection JSON. Full-range mode
-reveals curves outside the standard bounds. Headings spanning more than 2π
-produce a notice rather than changing the underlying data.
+reveals curves outside the standard bounds. Heading limits already cover all displayed values by default.
 
 `tools/reconstruction/select_waymo_anomalies.py` selects 50 candidates per type using equal
 weights on within-type percentiles of missing fraction, circular angular-speed

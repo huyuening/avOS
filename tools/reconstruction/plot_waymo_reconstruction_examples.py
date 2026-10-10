@@ -338,8 +338,8 @@ def main():
                 position_frame="Origin at first valid recorded position, rotated by the negative initial recorded heading" if args.style == "paper" else "Translation only")
     if args.style == "paper":
         from scenario_reconstructor.visualization import AXIS_LIMITS
-        info["plot_axis_limits"] = dict(AXIS_LIMITS, heading_rad="Per-object movable 2*pi-wide window after display unwrapping")
-        info["heading_display"] = "Display copies are unwrapped and aligned across stages. Each object has a movable 2*pi-wide heading window with 1.5-rad tick spacing. Stored angles and motion quantities are unchanged."
+        info["plot_axis_limits"] = dict(AXIS_LIMITS, heading_rad="Per-object full range of stored angles, without display unwrapping")
+        info["heading_display"] = "Stored heading values are displayed directly without unwrapping or branch alignment. Heading limits cover all displayed values; numerical jumps and missing samples are preserved."
         info["panel_labels"] = {chr(97+i): e["label"] for i, e in enumerate(examples)}
     if stage_sources:
         info["reconstruction"] = "Paper curves use the three explicitly supplied stage snapshot files. The script validates their scenario, timestamps and object types but does not infer or rerun their generating algorithms. Paired final-output CSV files are also retained separately."

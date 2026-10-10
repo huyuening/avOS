@@ -25,29 +25,16 @@ def _position_in_initial_frame(state, indices, origin, heading):
     return xy @ np.array([[c, -s], [s, c]])
 
 
-def continuous_heading_display(series):
-    """Unwrap display copies, align branches, and choose a movable 2*pi window.
-
-    Missing samples remain missing. Only integer multiples of 2*pi are added;
-    neither stored states nor motion quantities are changed.
-    """
-    values = []
-    for source in series:
-        a = np.array(source, dtype=float, copy=True)
-        valid = np.isfinite(a)
-        if valid.any():
-            a[valid] = np.unwrap(a[valid])
-        values.append(a)
-    reference = values[0]
-    for a in values[1:]:
-        shared = np.isfinite(reference) & np.isfinite(a)
-        if shared.any():
-            offset = 2 * np.pi * np.round(np.median(a[shared] - reference[shared]) / (2 * np.pi))
-            a -= offset
+def stored_heading_display(series):
+    """Copy stored angles unchanged and fit all finite values in the display."""
+    values = [np.array(source, dtype=float, copy=True) for source in series]
     finite = np.concatenate([a[np.isfinite(a)] for a in values])
-    center = (finite.min() + finite.max()) / 2 if finite.size else 0.
-    limits = (center - np.pi, center + np.pi)
-    ticks = np.arange(np.ceil(limits[0] / 1.5), np.floor(limits[1] / 1.5) + 1) * 1.5
+    lo, hi = (finite.min(), finite.max()) if finite.size else (0., 0.)
+    center = (lo + hi) / 2
+    width = max(2 * np.pi, (hi - lo) * 1.1 + .2)
+    limits = (center - width / 2, center + width / 2)
+    step = 1.5 * max(1, np.ceil(width / 12))
+    ticks = np.arange(np.ceil(limits[0] / step), np.floor(limits[1] / step) + 1) * step
     return values, limits, ticks
 
 
@@ -96,7 +83,7 @@ def plot_reconstruction_examples(examples, output_stem, scenario_id, reference_b
             raw_h[~valid] = np.nan
             heading_sources = ([raw_h] + [np.asarray(e['stages'][n]['state']['heading'])[idx] for n in (1, 2)]
                                if e.get('stages') else [raw_h, np.asarray(rec['heading'])[idx]])
-            heading_values, heading_limits, heading_ticks = continuous_heading_display(heading_sources)
+            heading_values, heading_limits, heading_ticks = stored_heading_display(heading_sources)
             axes[0].plot(raw_xy[valid, 0], raw_xy[valid, 1], "k.", ms=2, label="Raw data")
             axes[1].plot(times[valid], heading_values[0][valid], "k.", ms=2, label="Raw data")
             if e.get("stages"):
@@ -183,9 +170,9 @@ def plot_reconstruction_examples(examples, output_stem, scenario_id, reference_b
                    + stages_text +
                    "Corresponding motion panels use common axis limits across the three examples. "
                    "All time axes span 0-20 s, with no extrapolation outside each observed interval. "
-                   "Heading display copies are unwrapped and aligned to a common angular branch for each object, retaining missing samples. "
-                   "Each heading panel uses a movable window of width 2*pi rad, with numerical ticks spaced 1.5 rad apart. "
-                   "For a trajectory spanning more than 2*pi, portions outside this window remain clipped; the gallery full-range mode shows the complete span. "
+                   "Heading values are plotted as stored, without display unwrapping or branch alignment, retaining missing samples and numerical jumps. "
+                   "Each heading panel covers all displayed angle values with numerical radian ticks. "
+                   ""
                    "Position is expressed in the initial object frame. Fixed engineering reference ranges are used for motion quantities, "
                    "and portions exceeding these ranges are clipped only in the display; the underlying data are retained.")
         if current_pipeline_note:

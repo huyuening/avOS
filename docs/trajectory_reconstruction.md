@@ -34,8 +34,8 @@ criterion, frame-index natural cubic interpolation, linear boundary extrapolatio
 and zero-as-missing convention. It does not add low-speed fallback, overshoot
 clipping, or the Butterworth port's sparse-anchor fallback. This also preserves
 legacy edge cases: zero headings are treated as gaps, and some underdetermined
-gaps remain zero. Final headings are stored as principal angles. Plots unwrap
-only display copies, without changing saved states.
+gaps remain zero. Final headings are stored as principal angles. Plots show stored angles directly without additional display unwrapping or
+branch alignment. Reconstruction-internal angle processing remains unchanged.
 
 ## Why heading can still look abnormal
 

@@ -72,13 +72,13 @@ def main():
  (out/'gallery/catalog.js').write_text('window.CATALOG='+json.dumps(selected,separators=(',',':'))+';')
  template=(src/'gallery/index.html').read_text().replace('浏览全部本地 Waymo 轨迹。','按类型保留异常评分最高的 50 条，共 150 条。').replace('全部轨迹</option>','全部入选轨迹</option>').replace('全部 ${CATALOG.length} 条','入选 ${CATALOG.length} 条').replace('所有对象均列入索引，不能重构的对象保留原因。','按缺失比例、周期角速度、加速度及 jerk 的 P99 在各类型内部等权排序。骑行者仅有 50 条，因此全部保留。排名是选图辅助，不是物理有效性判定。').replace('· 朝向大跳变 ${e.heading_jumps} 次','· 周期表示跳变 ${e.heading_jumps} 次${e.anomaly_rank?` · 类型内排名 ${e.anomaly_rank} · 异常评分 ${e.anomaly_score.toFixed(1)}/100`:""}')
  (out/'gallery/index.html').write_text(template)
- summary={'metric_source':'Full-precision original pickle states; no gallery rounding', 'selected':dict(collections.Counter(e['type'] for e in selected)),'candidate_counts':dict(collections.Counter(e['type'] for e in ranked)),'metrics':METRICS,'ranking':'Equal-weight within-type percentile ranks, 25 points each; absent or effectively zero metrics score zero. Only successfully reconstructed tracks are candidates. Ties use longer duration then stable identifiers.','angle_rule':'Angular speed uses the circular difference atan2(sin(delta),cos(delta)); 2*pi representation jumps do not raise the score.','display':'Unwrap only display copies; align phases; per-object movable 2*pi window. Original motion and heading states unchanged.','note':'Cyclists: all 50 available tracks retained. Anomaly scores are exploratory selection aids, not validated quality labels.'}
+ summary={'metric_source':'Full-precision original pickle states; no gallery rounding', 'selected':dict(collections.Counter(e['type'] for e in selected)),'candidate_counts':dict(collections.Counter(e['type'] for e in ranked)),'metrics':METRICS,'ranking':'Equal-weight within-type percentile ranks, 25 points each; absent or effectively zero metrics score zero. Only successfully reconstructed tracks are candidates. Ties use longer duration then stable identifiers.','angle_rule':'Angular speed uses the circular difference atan2(sin(delta),cos(delta)); 2*pi representation jumps do not raise the score.','display':'Display stored headings without unwrapping or branch alignment, with full heading range. Motion and heading states unchanged.','note':'Cyclists: all 50 available tracks retained. Anomaly scores are exploratory selection aids, not validated quality labels.'}
  (out/'selection_method.json').write_text(json.dumps(summary,indent=2))
  (out/'README.md').write_text('''# 连续朝向与 150 条候选轨迹
 
 打开 gallery/index.html。车辆、骑行者、行人各 50 条，默认按类型内异常排名排列。筛选按原始观测的缺失比例、角速度 P99、加速度幅值 P99、jerk 幅值 P99 的类型内百分位等权组合。角速度使用周期差分，因此 ±π / 2π 表示跳变不会单独提高异常分数。可用骑行者恰有 50 条，全部保留。评分仅供选图，不是重构方法排名或质量真值。
 
-朝向按时间展开为连续曲线，各阶段对齐同一角度分支。默认纵轴宽度 2π，中心随轨迹变化，数字刻度间隔 1.5 rad。若轨迹连续角度跨度本身超过 2π，默认窗无法容纳全部值，可勾选完整数据范围。没有修改任何重构数值或运动量。
+朝向直接显示各阶段保存值，不做显示展开或分支对齐；默认纵轴完整覆盖这些值，保留数值跳变。没有修改任何重构数值或运动量。
 
 trajectory_index.csv 是 150 条选中轨迹及其异常指标。all_ranked_candidates.csv 保留全部 7,016 条可重构候选的指标以便核查。stages 与 reconstructed 仅保留所选对象，因此是诊断子集，不是完整场景。全部原始及重构轨迹仍保存在原完整目录。
 ''')
